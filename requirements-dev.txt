@@ -1,0 +1,3 @@
+# Enkel voor tests en de lokale nabootsing van Supabase (niet nodig voor de app zelf).
+psycopg[binary]==3.2.3
+pgserver==0.1.4 ; sys_platform == "darwin"

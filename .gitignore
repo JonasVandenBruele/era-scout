@@ -1,0 +1,12 @@
+# Lokale omgeving en gegevens: nooit naar GitHub
+.venv/
+.lokaal/
+archief/
+data/
+app/config.js
+.env*
+!.env.example
+.DS_Store
+__pycache__/
+*.pyc
+.claude/

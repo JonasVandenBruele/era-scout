@@ -1,0 +1,89 @@
+# Test, werk de database bij en publiceer de app op GitHub Pages bij elke push naar main.
+# Er wordt enkel gepubliceerd als alle tests slagen én de databasemigraties gelukt zijn.
+name: Test en publiceer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  bouw:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install "psycopg[binary]==3.2.3"
+
+      # Alle spelregels, rechten en adresfuncties testen tegen een echte Postgres.
+      - name: Tests
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/postgres
+        run: python -m unittest discover -s tests -v
+
+      # Databasemigraties (supabase/migrations) automatisch toepassen op het Supabase-project.
+      # Vereist het geheim SUPABASE_DB_PASSWORD; zonder dat geheim wordt deze stap overgeslagen.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Database bijwerken
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+          SUPABASE_DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+        run: |
+          if [ -z "$SUPABASE_DB_PASSWORD" ] || [ -z "$SUPABASE_PROJECT_ID" ] || [ -z "$SUPABASE_DB_HOST" ]; then
+            echo "::warning::Supabase-gegevens ontbreken; databasemigraties overgeslagen."
+            exit 0
+          fi
+          WW=$(python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["SUPABASE_DB_PASSWORD"], safe=""))')
+          echo "::add-mask::$WW"
+          DB_URL="postgresql://postgres.${SUPABASE_PROJECT_ID}:${WW}@${SUPABASE_DB_HOST}:5432/postgres"
+          yes | supabase db push --db-url "$DB_URL"
+
+      # De app heeft geen build-stap: kopiëren en config.js maken met de publieke Supabase-waarden.
+      - name: Site samenstellen
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          mkdir -p _site && cp -r app/. _site/
+          python3 - <<'PY'
+          import json, os
+          cfg = {"supabaseUrl": os.environ.get("VITE_SUPABASE_URL", ""), "supabaseAnonKey": os.environ.get("VITE_SUPABASE_ANON_KEY", "")}
+          open("_site/config.js", "w").write("window.NOD_CONFIG = " + json.dumps(cfg) + ";\n")
+          PY
+          # Nieuwe versie = nieuwe cache voor de app-schil op de gsm.
+          sed -i "s/nod-shell-v[0-9]*/nod-shell-${GITHUB_SHA::8}/" _site/sw.js
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  publiceer:
+    needs: bouw
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

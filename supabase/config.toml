@@ -1,0 +1,3 @@
+# Minimale Supabase CLI-configuratie. Wordt enkel gebruikt om migraties naar het gekoppelde project te pushen
+# (zie .github/workflows/publiceer.yml). Geen geheimen in dit bestand.
+project_id = "nog-een-deur"
