@@ -1,4 +1,4 @@
--- Nog één deur — basisschema.
+-- ERA Scout — basisschema.
 -- Alle gegevens horen bij een team. De app leest en schrijft NOOIT rechtstreeks in deze tabellen:
 -- alles loopt via de functies in 20261004000003_api.sql (security definer), die het team en de rol
 -- van de ingelogde gebruiker controleren en de punten zelf berekenen. RLS staat overal aan zonder

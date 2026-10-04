@@ -1,4 +1,4 @@
--- Nog één deur — API voor de app (aan te roepen via supabase.rpc).
+-- ERA Scout — API voor de app (aan te roepen via supabase.rpc).
 -- Elke functie draait als security definer, bepaalt zelf wie de gebruiker is (auth.uid()) en
 -- werkt enkel binnen diens team. Fouten komen terug als P0001 met een Nederlandse melding
 -- (message) en eventueel een code (hint), bv. do_not_contact.

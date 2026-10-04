@@ -1,5 +1,5 @@
 "use strict";
-/* Nog één deur — ERA prospectiegame (vanilla JS, geen build-stap).
+/* ERA Scout — prospectiegame (vanilla JS, geen build-stap).
    Data, login en spelregels zitten in Supabase (zie supabase/migrations). */
 
 const app = document.getElementById("app");
@@ -136,12 +136,12 @@ function mapsUrl(address) {
   return /iPhone|iPad|Macintosh/.test(navigator.userAgent) && "ontouchend" in document
     ? `https://maps.apple.com/?daddr=${q}` : `https://www.google.com/maps/dir/?api=1&destination=${q}`;
 }
-const brand = () => `<a class="brand" href="#/" aria-label="Mijn dag"><span class="era">ERA</span><span class="brand-name">Nog één deur</span></a>`;
+const brand = () => `<a class="brand" href="#/" aria-label="Mijn dag"><span class="era">ERA</span><span class="brand-name">Scout</span></a>`;
 const backBar = (href, title, extra = "") => `<header class="topbar"><a class="icon-btn" href="${href}" aria-label="Terug">${icon("back")}</a><h1>${esc(title)}</h1>${extra}</header>`;
 
 /* -------------------------------------------------------------- api --- */
 
-const CFG = window.NOD_CONFIG || {};
+const CFG = window.SCOUT_CONFIG || {};
 const sb = CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase
   ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey,
     { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } })
@@ -442,7 +442,7 @@ const heroHtml = (title, sub) => `<div class="login-hero"><span class="era">ERA<
 
 async function viewLogin() {
   if (!sb) {
-    app.innerHTML = `${heroHtml("Nog één deur", "Nog niet gekoppeld")}
+    app.innerHTML = `${heroHtml("Scout", "Nog niet gekoppeld")}
       <div class="panel stack"><p style="margin:0">Deze versie van de app is nog niet gekoppeld aan een Supabase-project.</p>
       <p class="small muted" style="margin:0">Zet <code>VITE_SUPABASE_URL</code> en <code>VITE_SUPABASE_ANON_KEY</code> als repository-variabelen op GitHub (zie README) of vul <code>app/config.js</code> in voor lokaal gebruik.</p></div>`;
     return;
@@ -450,7 +450,7 @@ async function viewLogin() {
   const st = await loadMe();
   if (S.me) return go("#/");
   const session = (await sb.auth.getSession()).data.session;
-  app.innerHTML = `${heroHtml("Nog één deur", "Bel aan. Tik je resultaat. Klim in de ranking.")}
+  app.innerHTML = `${heroHtml("Scout", "Scout je wijk. Tik je resultaat. Klim in de ranking.")}
     ${session ? `<div class="notice warn">${icon("alert")}<span>Je bent ingelogd als ${esc(session.user.email)}, maar je hebt nog geen toegang tot een team.
       ${st.inactive ? "Je account is gedeactiveerd." : st.needs_setup ? "Start hieronder je team." : "Open de uitnodigingslink die je van je beheerder kreeg."}</span></div>` : ""}
     <form class="panel stack" id="login" novalidate>

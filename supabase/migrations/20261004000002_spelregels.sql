@@ -1,4 +1,4 @@
--- Nog één deur — spelregels (interne functies in schema app).
+-- ERA Scout — spelregels (interne functies in schema app).
 --
 -- Puntenmodel
 -- * Een bezoek heeft één resultaat: door (aangebeld) < conversation (gesprek) < phone (telefoonnummer)

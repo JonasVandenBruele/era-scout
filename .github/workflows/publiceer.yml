@@ -70,7 +70,7 @@ jobs:
           python3 - <<'PY'
           import json, os
           cfg = {"supabaseUrl": os.environ.get("VITE_SUPABASE_URL", ""), "supabaseAnonKey": os.environ.get("VITE_SUPABASE_ANON_KEY", "")}
-          open("_site/config.js", "w").write("window.NOD_CONFIG = " + json.dumps(cfg) + ";\n")
+          open("_site/config.js", "w").write("window.SCOUT_CONFIG = " + json.dumps(cfg) + ";\n")
           PY
           # Nieuwe versie = nieuwe cache voor de app-schil op de gsm.
           sed -i "s/nod-shell-v[0-9]*/nod-shell-${GITHUB_SHA::8}/" _site/sw.js

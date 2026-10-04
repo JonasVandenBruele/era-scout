@@ -1,4 +1,7 @@
-# Nog één deur · ERA
+# ERA Scout
+
+*Scouts zoeken prospects.* In de sport speuren scouts naar jonge talenten met potentieel; met deze app
+scouten makelaars hun wijk naar de verkopers van morgen.
 
 Mobiele prospectiegame voor deur-aan-deurprospectie: bel aan, tik je resultaat in een paar
 seconden, zie meteen je punten, voortgang en positie tegenover je collega's. Het hoogste
@@ -29,7 +32,7 @@ resultaat is een **afspraak**; er is geen CRM en er worden geen verkopen bijgeho
    maar enkele mails per uur). Laat je het aan, dan werkt de app ook: collega's bevestigen eerst
    hun e-mail en loggen daarna in.
 3. **Authentication → URL Configuration**: *Site URL* = het adres van de app
-   (`https://jonasvandenbruele.github.io/nog-een-deur/`), en voeg dat ook toe bij *Redirect URLs*.
+   (`https://jonasvandenbruele.github.io/era-scout/`), en voeg dat ook toe bij *Redirect URLs*.
 
 ### 2. GitHub-repository → Settings → Secrets and variables → Actions
 | Soort | Naam | Waarde (Supabase → Project Settings) |
@@ -41,7 +44,7 @@ resultaat is een **afspraak**; er is geen CRM en er worden geen verkopen bijgeho
 | **Secret** | `SUPABASE_DB_PASSWORD` | het databasewachtwoord |
 
 Start daarna **Actions → Test en publiceer → Run workflow**. De database wordt ingericht en de
-app gepubliceerd op `https://jonasvandenbruele.github.io/nog-een-deur/`.
+app gepubliceerd op `https://jonasvandenbruele.github.io/era-scout/`.
 
 ### 3. Eerste gebruik
 1. Open de app → **Eerste keer? Start een nieuw team** → jij wordt beheerder. (Dit kan maar één

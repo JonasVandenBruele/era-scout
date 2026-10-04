@@ -1,7 +1,7 @@
 {
-  "name": "Nog één deur · ERA",
-  "short_name": "Nog één deur",
-  "description": "Prospectiegame: bel aan, registreer in seconden, zie je voortgang.",
+  "name": "ERA Scout",
+  "short_name": "Scout",
+  "description": "Scout je wijk: bel aan, registreer in seconden en klim in de ranking.",
   "lang": "nl",
   "start_url": "./#/",
   "scope": "./",

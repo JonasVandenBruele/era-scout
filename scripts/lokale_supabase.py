@@ -6,7 +6,7 @@ Start een ingebouwde Postgres (pgserver), past de migraties toe en serveert:
   /auth/v1/...           aanmelden, registreren, wachtwoord (zoals Supabase Auth)
   /rest/v1/rpc/<functie> de database-functies (zoals Supabase/PostgREST), als rol authenticated
 
-ENKEL voor lokaal testen: geen e-mailbevestiging, eenvoudige tokens, alles in ~/.nog-een-deur-lokaal/.
+ENKEL voor lokaal testen: geen e-mailbevestiging, eenvoudige tokens, alles in ~/.era-scout-lokaal/.
 
     .venv/bin/python scripts/lokale_supabase.py            # http://localhost:54321
     .venv/bin/python scripts/lokale_supabase.py --reset    # met een lege database beginnen
@@ -32,7 +32,7 @@ from psycopg.types.json import Jsonb
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Kort pad: Postgres-sockets mogen niet in een lange map met spaties staan.
-DATA = os.path.expanduser("~/.nog-een-deur-lokaal/postgres")
+DATA = os.path.expanduser("~/.era-scout-lokaal/postgres")
 APP = os.path.join(ROOT, "app")
 PORT = int(os.environ.get("PORT", "54321"))
 TOKENS = {}   # access token -> user id
@@ -111,7 +111,7 @@ class Handler(BaseHTTPRequestHandler):
                 uid = self.uid()
                 return self.send(200, self.session(con, uid)["user"]) if uid else self.send(401, {"message": "Niet ingelogd"})
         if path == "/config.js":
-            js = f'window.NOD_CONFIG = {{ supabaseUrl: "http://localhost:{PORT}", supabaseAnonKey: "lokaal" }};\n'
+            js = f'window.SCOUT_CONFIG = {{ supabaseUrl: "http://localhost:{PORT}", supabaseAnonKey: "lokaal" }};\n'
             return self.send(200, js.encode(), "application/javascript")
         rel = "index.html" if path in ("/", "") else path.lstrip("/")
         full = os.path.realpath(os.path.join(APP, rel))
