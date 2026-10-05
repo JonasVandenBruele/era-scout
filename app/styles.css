@@ -27,6 +27,8 @@
   --hi: inset 0 1px 0 rgba(255, 255, 255, .06);
   --shadow: 0 10px 30px rgba(0, 0, 20, .35);
   --radius: 16px;
+  --input-bg: #11136b;
+  --input-focus: #161985;
   --nav-h: 70px;
   --font: "Montserrat", "Gotham", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
@@ -52,6 +54,8 @@
   --ok: #00876f;
   --hi: none;
   --shadow: 0 6px 20px rgba(0, 0, 61, .08);
+  --input-bg: #ffffff;
+  --input-focus: #ffffff;
   color-scheme: light;
 }
 
@@ -85,6 +89,7 @@ svg.i.sm { width: 16px; height: 16px; }
 svg.i.lg { width: 26px; height: 26px; }
 svg.i.fill { fill: currentColor; stroke: none; }
 
+body::before { content: ""; position: fixed; left: 0; right: 0; top: 0; height: env(safe-area-inset-top); background: var(--bg); z-index: 45; }
 #app { max-width: 540px; margin: 0 auto; padding: 0 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom)); }
 .stack > * + * { margin-top: 12px; }
 .row { display: flex; align-items: center; gap: 10px; }
@@ -133,17 +138,36 @@ svg.i.fill { fill: currentColor; stroke: none; }
 @keyframes glow { 50% { box-shadow: 0 8px 34px var(--red-glow), 0 0 0 6px rgba(214, 10, 41, .12), inset 0 1px 0 rgba(255, 255, 255, .25); } }
 
 /* inputs */
-.field { display: block; }
+.field { display: block; min-width: 0; }
 .field > span { display: block; margin-bottom: 6px; }
+.grid2 > *, .grid4 > *, .row > .field { min-width: 0; }
 .input {
-  width: 100%; min-height: 50px; border-radius: 12px; border: 1.5px solid var(--line-2);
-  background: var(--bg); padding: 12px 14px; font-size: 16px; font-weight: 600; outline: none;
+  display: block; width: 100%; max-width: 100%; min-width: 0; min-height: 52px; border-radius: 12px;
+  border: 1px solid var(--line-2); background: var(--input-bg); color: var(--ink);
+  padding: 12px 14px; font-size: 16px; font-weight: 600; outline: none;
+  -webkit-appearance: none; appearance: none; box-shadow: inset 0 1px 2px rgba(0, 0, 20, .25);
+  transition: border-color .15s, box-shadow .15s, background .15s;
 }
-:root[data-theme="light"] .input { background: #fff; }
 .input::placeholder { color: var(--faint); font-weight: 500; }
-.input:focus { border-color: var(--ink); }
-select.input { appearance: none; }
+.input:focus { border-color: var(--red); background: var(--input-focus); box-shadow: 0 0 0 3px rgba(214, 10, 41, .22); }
+/* Keuzelijst: eigen pijltje (iOS toont er geen bij appearance: none). */
+select.input {
+  padding-right: 42px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aeb3e0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 14px center; background-size: 18px;
+}
+/* Datum en uur: links uitgelijnd, binnen de kaart, leesbaar icoon (Safari en Chrome). */
+input[type="date"].input, input[type="time"].input { text-align: left; line-height: 26px; }
+input[type="date"].input::-webkit-date-and-time-value, input[type="time"].input::-webkit-date-and-time-value { text-align: left; margin: 0; }
+input[type="date"].input::-webkit-calendar-picker-indicator, input[type="time"].input::-webkit-calendar-picker-indicator { filter: invert(.8); opacity: .8; cursor: pointer; }
+:root[data-theme="light"] input[type="date"].input::-webkit-calendar-picker-indicator { filter: none; }
+input[type="number"].input { -moz-appearance: textfield; }
+input[type="number"].input::-webkit-inner-spin-button, input[type="number"].input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 textarea.input { min-height: 80px; resize: vertical; }
+input[type="checkbox"] { accent-color: var(--red); width: 20px; height: 20px; }
+.hint { font-size: 12.5px; color: var(--faint); margin: 6px 0 0; }
+.days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.days .chip { justify-content: center; padding: 0; min-width: 0; }
 .error { color: var(--danger); font-weight: 700; font-size: 14px; margin: 0; }
 .error:empty { display: none; }
 .search { position: relative; }
@@ -366,3 +390,7 @@ details.adm > .body { padding: 0 16px 16px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Uitklapbare "+ toevoegen"-regels zonder standaard driehoekje. */
+details > summary.label { list-style: none; }
+details > summary.label::-webkit-details-marker { display: none; }

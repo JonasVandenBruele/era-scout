@@ -1483,8 +1483,11 @@ async function viewProfile() {
       <section class="panel stack"><span class="label">Mijn doelen</span>
         <div class="row spread"><b>Dagmissie</b><div class="row"><button class="icon-btn" id="dg-min" aria-label="Minder">−</button><b class="num" id="dg" style="font-size:24px;min-width:40px;text-align:center">${u.daily_goal}</b><button class="icon-btn" id="dg-plus" aria-label="Meer">${icon("plus", "sm")}</button></div></div>
         <div><span class="label">Werkdagen</span>
-          <div class="chips" style="margin-top:8px">${["ma", "di", "wo", "do", "vr", "za", "zo"].map((d, i) => `<button class="chip" data-wd="${i + 1}" aria-pressed="${wd.includes(String(i + 1))}" style="min-width:46px;justify-content:center">${d}</button>`).join("")}</div></div>
-        <label class="field"><span class="label">Afwezig / verlof tot en met</span><input class="input" type="date" id="away" value="${esc(u.away_until || "")}"></label>
+          <div class="days" style="margin-top:8px">${["ma", "di", "wo", "do", "vr", "za", "zo"].map((d, i) => `<button class="chip" data-wd="${i + 1}" aria-pressed="${wd.includes(String(i + 1))}">${d}</button>`).join("")}</div></div>
+        <div class="field"><span class="label">Afwezig / verlof tot en met</span>
+          <div class="row"><input class="input grow" type="date" id="away" value="${esc(u.away_until || "")}" aria-label="Afwezig tot en met">
+            <button type="button" class="btn sm ghost" id="away-clear">Wis</button></div>
+          <p class="hint" id="away-hint">${u.away_until ? `Afwezig tot en met ${fmtDate(u.away_until)}` : "Leeg laten als je niet afwezig bent"}</p></div>
         <p class="tiny faint" style="margin:0">Geen streaks: weekends, verlof en vrije dagen breken niets.</p>
         <div><span class="label">Kleur</span><div class="row wrap" style="margin-top:8px">${COLORS.map((c) => `<button class="swatch" data-color="${c}" aria-pressed="${color === c}" style="background:${c}" aria-label="Kleur ${c}"></button>`).join("")}</div></div>
         <button class="btn primary block" id="g-save">Opslaan</button></section>
@@ -1507,6 +1510,8 @@ async function viewProfile() {
   });
   on("[data-color]", "click", (e) => { color = e.currentTarget.dataset.color; $$("[data-color]").forEach((b) => b.setAttribute("aria-pressed", b === e.currentTarget)); });
   on("#autoloc", "change", (e) => store.set("nod_autoloc", e.target.checked));
+  on("#away", "change", (e) => { $("#away-hint").textContent = e.target.value ? `Afwezig tot en met ${fmtDate(e.target.value)}` : "Leeg laten als je niet afwezig bent"; });
+  on("#away-clear", "click", () => { $("#away").value = ""; $("#away-hint").textContent = "Leeg laten als je niet afwezig bent"; });
   on("#theme", "change", (e) => { store.set("nod_theme", e.target.checked ? "light" : "dark"); applyTheme(); });
   on("#g-save", "click", async () => {
     try {
@@ -1615,6 +1620,9 @@ window.addEventListener("beforeunload", (e) => { if (REGION.running) { e.prevent
 
 /* ------------------------------------------------------------ admin --- */
 
+const roleSeg = (role) => [["member", "Lid"], ["admin", "Beheerder"]].map(([k, l]) =>
+  `<button type="button" data-role="${k}" aria-pressed="${role === k}">${l}</button>`).join("");
+
 async function viewAdmin() {
   if (S.me.role !== "admin") return go("#/profiel");
   const [o, vs, rg] = await Promise.all([api("GET", "/api/admin/overview"), api("GET", "/api/admin/visits"), api("GET", "/api/region")]);
@@ -1653,17 +1661,17 @@ async function viewAdmin() {
     </div></details>
 
     <details class="adm"><summary>${icon("team")} Collega's</summary><div class="body stack">
-      <form id="inv" class="stack"><div class="row"><input class="input grow" name="email" type="email" placeholder="e-mail collega" required>
-        <select class="input" name="role" style="width:auto"><option value="member">Lid</option><option value="admin">Beheerder</option></select></div>
+      <form id="inv" class="stack"><label class="field"><span class="label">Collega uitnodigen</span>
+        <input class="input" name="email" type="email" placeholder="naam@eraleustoye.be" autocomplete="off" required></label>
+        <div class="seg" role="group" aria-label="Rol">${roleSeg("member")}</div>
         <button class="btn primary block">Uitnodiging maken</button><div id="inv-out"></div></form>
       ${o.members.map((m) => `<div class="panel stack" style="background:var(--surface-2)" data-member="${m.id}">
         <div class="row">${avatar(m)}<div class="grow"><b>${esc(m.name)}</b><div class="tiny muted">${esc(m.email)}</div></div>${m.is_demo ? '<span class="demo-flag">demo</span>' : ""}</div>
-        <div class="row wrap"><label class="field grow"><span class="label">Rol</span><select class="input" data-k="role"><option value="member" ${m.role === "member" ? "selected" : ""}>Lid</option><option value="admin" ${m.role === "admin" ? "selected" : ""}>Beheerder</option></select></label>
-          <label class="field" style="width:92px"><span class="label">Dagdoel</span><input class="input" type="number" min="1" max="100" data-k="daily_goal" value="${m.daily_goal}"></label>
-          <label class="field" style="width:104px"><span class="label">Werkdagen</span><input class="input" data-k="work_days" value="${esc(m.work_days)}" inputmode="numeric" title="1=ma … 7=zo"></label></div>
-        <div class="row"><label class="row grow small"><input type="checkbox" data-k="active" ${m.active ? "checked" : ""}> Actief</label><button class="btn sm outline" data-save-member>Opslaan</button></div>
+        <div><span class="label">Rol</span><div class="seg" role="group" aria-label="Rol" style="margin-top:8px">${roleSeg(m.role)}</div></div>
+        <div class="row spread"><span class="label">Dagdoel</span><div class="row"><input class="input" type="number" inputmode="numeric" min="1" max="100" data-k="daily_goal" value="${m.daily_goal}" style="width:84px;text-align:center"><span class="small muted">deuren</span></div></div>
+        <div><span class="label">Werkdagen</span><div class="days" style="margin-top:8px">${["ma", "di", "wo", "do", "vr", "za", "zo"].map((d, i) => `<button type="button" class="chip" data-mwd="${i + 1}" aria-pressed="${m.work_days.includes(String(i + 1))}">${d}</button>`).join("")}</div></div>
+        <div class="row"><label class="switch grow"><span><b>Actief</b></span><input type="checkbox" data-k="active" ${m.active ? "checked" : ""}></label><button class="btn sm outline" data-save-member>Opslaan</button></div>
       </div>`).join("")}
-      <p class="tiny faint">Werkdagen: 1 = maandag … 7 = zondag (bv. 135 voor ma, wo, vr).</p>
     </div></details>
 
     <details class="adm"><summary>${icon("crown")} Competitie</summary><div class="body stack">
@@ -1672,7 +1680,7 @@ async function viewAdmin() {
       <form id="comp" class="stack"><span class="label">Nieuwe competitie</span>
         <label class="field"><span class="label">Naam</span><input class="input" name="name" required maxlength="60" placeholder="bv. Wintersprint"></label>
         <div class="grid2"><label class="field"><span class="label">Start</span><input class="input" type="date" name="starts_on" required value="${active ? addDays(1, new Date(active.ends_on + "T12:00")) : today}"></label>
-          <label class="field"><span class="label">Einde</span><input class="input" type="date" name="ends_on" required></label></div>
+          <label class="field"><span class="label">Einde</span><input class="input" type="date" name="ends_on" required value="${addDays(13, new Date((active ? addDays(1, new Date(active.ends_on + "T12:00")) : today) + "T12:00"))}"></label></div>
         <label class="field"><span class="label">Beloning · optioneel</span><input class="input" name="reward" maxlength="160" placeholder="bv. etentje voor de winnaar"></label>
         <div><span class="label">Deelnemers</span>${o.members.filter((m) => m.active).map((m) => `<label class="row small" style="min-height:36px"><input type="checkbox" name="p" value="${m.id}" checked> ${esc(m.name)}</label>`).join("")}</div>
         <p class="tiny faint" style="margin:0">Een nieuwe competitie start op nul. Persoonlijke XP en historiek blijven bewaard.</p>
@@ -1742,17 +1750,27 @@ async function viewAdmin() {
     e.preventDefault();
     try {
       const f = Object.fromEntries(new FormData(e.target));
-      const r = await rpc("admin_invite", { p_email: f.email, p_role: f.role });
+      const role = $('#inv [data-role][aria-pressed="true"]').dataset.role;
+      const r = await rpc("admin_invite", { p_email: f.email, p_role: role });
       const url = `${BASE}#/uitnodiging/${r.code}`;
       $("#inv-out").innerHTML = `<div class="notice ok small">${icon("check", "sm")}<span>Stuur deze link naar ${esc(r.email)} (14 dagen geldig):<br><code style="word-break:break-all">${esc(url)}</code></span></div><button type="button" class="btn sm outline" id="copy">Kopieer link</button>`;
       on("#copy", "click", () => navigator.clipboard.writeText(url).then(() => toast("Link gekopieerd")));
     } catch (err) { $("#inv-out").innerHTML = `<p class="error">${esc(err.message)}</p>`; }
   });
+  on("[data-role]", "click", (e) => {
+    const b = e.currentTarget;
+    $$("[data-role]", b.parentElement).forEach((x) => x.setAttribute("aria-pressed", x === b));
+  });
+  on("[data-mwd]", "click", (e) => {
+    const b = e.currentTarget;
+    b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true");
+  });
   on("[data-save-member]", "click", async (e) => {
     const box = e.currentTarget.closest("[data-member]");
     const val = (k) => $(`[data-k="${k}"]`, box);
     try {
-      await api("PATCH", `/api/admin/users/${box.dataset.member}`, { role: val("role").value, daily_goal: +val("daily_goal").value, work_days: val("work_days").value, active: val("active").checked });
+      const workDays = $$("[data-mwd]", box).filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.mwd).join("");
+      await api("PATCH", `/api/admin/users/${box.dataset.member}`, { role: $('[data-role][aria-pressed="true"]', box).dataset.role, daily_goal: +val("daily_goal").value, work_days: workDays, active: val("active").checked });
       done();
     } catch (err) { toast(err.message); }
   });
