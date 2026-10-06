@@ -573,6 +573,8 @@ def cmd_check(maximum):
                 stats[iw] = stats.get(iw, 0) + 1
     finally:
         note = f"{len(items)} panden · Immoweb: " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items()))
+        if kind == "daily" and len(items) >= maximum:
+            note = "gedeeltelijk · " + note  # maximum bereikt: de volgende ronde doet de rest
         call(con, "select worker.finish_run(%s, %s)", claim["run_id"], note)
     log.info("controle %s: %s", kind, note)
     print(f"Controle ({kind}): {note}")

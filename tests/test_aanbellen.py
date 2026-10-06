@@ -197,6 +197,16 @@ class AanbellenTest(AanbellenBase):
         self.assertEqual(self.sofie.call("scout_route")["plan"]["stops"], [a])
         self.sofie.call("scout_select", p_property=a, p_selected=False)
 
+    def test_partial_daily_run(self):
+        self.sql("delete from public.check_runs where kind = 'daily'")
+        self.assertFalse(self.worker("select worker.daily_done(%s)", self.team))
+        add = "insert into public.check_runs (team_id, kind, worker, finished_at, note) values (%s, 'daily', 'test', now(), %s)"
+        self.sql(add, self.team, "gedeeltelijk · 1 panden")
+        self.assertFalse(self.worker("select worker.daily_done(%s)", self.team))     # afgekapt: nog niet klaar
+        self.sql(add, self.team, "12 panden")
+        self.assertTrue(self.worker("select worker.daily_done(%s)", self.team))
+        self.sql("delete from public.check_runs where kind = 'daily'")
+
     def test_access(self):
         with psycopg.connect(self.url) as con:
             con.execute("set local role authenticated")
