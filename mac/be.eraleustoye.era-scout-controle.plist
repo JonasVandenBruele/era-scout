@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>be.eraleustoye.era-scout-controle</string>
+	<!-- ERA Scout · Aanbellen: aangevraagde controles en één volledige controle per dag (vanaf 06:00). -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/jonasvandenbruele/Desktop/CLAUDE CODE/PROJECT2/.venv/bin/python</string>
+		<string>/Users/jonasvandenbruele/Desktop/CLAUDE CODE/PROJECT2/scripts/scout_worker.py</string>
+		<string>controleer</string>
+	</array>
+	<key>StartInterval</key>
+	<integer>900</integer>
+	<key>RunAtLoad</key>
+	<false/>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>10</integer>
+	<key>StandardOutPath</key>
+	<string>/Users/jonasvandenbruele/Library/Logs/era-scout-worker.out.log</string>
+	<key>StandardErrorPath</key>
+	<string>/Users/jonasvandenbruele/Library/Logs/era-scout-worker.out.log</string>
+</dict>
+</plist>

@@ -367,9 +367,9 @@ function setNav(path, show = true) {
   if (!show) return;
   const cur = path === "#" || path === "" ? "#/" : path;
   const active = (href) => cur === href
-    || (href === "#/prospecten" && (cur.startsWith("#/prospect") || cur === "#/opvolgingen"))
+    || (href === "#/aanbellen" && (cur.startsWith("#/aanbellen") || cur.startsWith("#/prospect") || cur === "#/opvolgingen"))
     || (href === "#/profiel" && cur === "#/beheer") || (href === "#/" && cur === "#/ronde");
-  const items = [["#/", "home", "Mijn dag"], ["#/prospecten", "pin", "Adressen"], ["#/registreer", "plus", ""],
+  const items = [["#/", "home", "Mijn dag"], ["#/aanbellen", "door", "Aanbellen"], ["#/registreer", "plus", ""],
     ["#/ranglijst", "trophy", "Ranking"], ["#/profiel", "user", "Profiel"]];
   nav.innerHTML = `<div>${items.map(([href, ic, label]) => !label
     ? `<a href="${href}" aria-label="Registreer bezoek"><span class="fab">${icon(ic)}</span></a>`
@@ -381,6 +381,7 @@ function setNav(path, show = true) {
 const ROUTES = [
   [/^#\/?$/, viewDay], [/^#\/registreer$/, viewRegister, { nav: false }], [/^#\/prospecten$/, viewProspects],
   [/^#\/opvolgingen$/, viewFollowUps], [/^#\/prospect\/(\d+)$/, viewProspect], [/^#\/ronde$/, viewRound],
+  [/^#\/aanbellen$/, viewAanbellen], [/^#\/aanbellen\/route$/, viewRoute],
   [/^#\/ranglijst$/, viewLeaderboard], [/^#\/profiel$/, viewProfile], [/^#\/beheer$/, viewAdmin],
   [/^#\/login$/, viewLogin, { pub: true, nav: false }], [/^#\/uitnodiging\/([\w-]+)$/, viewInvite, { pub: true, nav: false }],
   [/^#\/setup$/, viewSetup, { pub: true, nav: false }], [/^#\/wachtwoord$/, viewPassword, { pub: true, nav: false }],
@@ -690,6 +691,10 @@ async function viewRegister(_m, query) {
   } else if (query.get("ref")) {
     reg = newReg();
     try { reg.prospect = asProspect((await api("GET", `/api/addresses/${query.get("ref")}`)).address); } catch { /* offline */ }
+  } else if (query.get("adres")) {
+    reg = newReg();
+    const lat = parseFloat(query.get("lat")), lon = parseFloat(query.get("lon"));
+    reg.prospect = { address: query.get("adres"), ...(Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : {}) };
   } else if (query.get("p")) {
     reg = newReg();
     reg.prospect = S.prospects.find((p) => p.id === +query.get("p")) || { id: +query.get("p"), address: "…" };
@@ -1227,7 +1232,7 @@ function showSummary(s) {
 /* -------------------------------------------------------- prospects --- */
 
 const FILTERS = [["", "Alle"], ["near", "In de buurt"], ["unvisited", "Nog niet bezocht"], ["door", "Aangebeld"], ["conversation", "Gesprek"], ["phone", "Telefoon"], ["appointment", "Afspraak"], ["fu", "Opvolging"], ["dnc", "Niet contacteren"]];
-const listTabs = (cur) => `<div class="seg"><button data-href="#/prospecten" aria-pressed="${cur === "p"}">Adressen</button><button data-href="#/opvolgingen" aria-pressed="${cur === "f"}">Opvolgingen</button></div>`;
+const listTabs = (cur) => `<div class="seg"><button data-href="#/aanbellen" aria-pressed="${cur === "a"}">Aanbellen</button><button data-href="#/prospecten" aria-pressed="${cur === "p"}">Adressen</button><button data-href="#/opvolgingen" aria-pressed="${cur === "f"}">Opvolgingen</button></div>`;
 
 async function viewProspects(_m, query) {
   loadProspectCache();
@@ -1618,6 +1623,372 @@ function paintRegionProgress() {
 }
 window.addEventListener("beforeunload", (e) => { if (REGION.running) { e.preventDefault(); e.returnValue = ""; } });
 
+/* -------------------------------------------------------- aanbellen --- */
+/* Eigen prospecten uit ERAforce (Marketpulse) die lang te koop staan, actueel gecontroleerd op Immoweb en de
+   makelaarswebsite. De gebruiker kiest zelf; de app stelt een bezoekvolgorde voor en opent Waze per stop. */
+
+const CHECK_LABEL = {
+  active: ["Te koop", "ok"], under_option: ["Onder optie", "gold"], sold: ["Verkocht", "red"], not_found: ["Niet meer gevonden", "red"],
+  failed: ["Controle mislukt", "warn"], unknown: ["Onbekend", "muted"], not_applicable: ["N.v.t.", "muted"],
+};
+const DECISION_LABEL = { eligible: "Geschikt", needs_check: "Controle nodig", not_for_sale: "Niet meer te koop" };
+const AB = { data: null, tab: "eligible", shown: 25, busy: false };
+const fmtStamp = (s) => { if (!s) return "–"; const d = new Date(s); return `${d.getDate()}/${d.getMonth() + 1} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const euro = (n) => n == null ? "" : `€ ${Math.round(n).toLocaleString("nl-BE")}`;
+const fullAddress = (c) => `${c.address}, ${c.postcode || ""} ${c.city || ""}`.replace(/\s+/g, " ").trim();
+
+/* Officieel Waze-formaat (developers.google.com/waze/deeplinks): opent de app, of de website als de app ontbreekt.
+   Eén bestemming per link; een route met meerdere stops kan Waze niet ontvangen. */
+function wazeUrl(c) {
+  if (c.lat != null && c.lon != null && c.geo_quality !== "unsure") {
+    return `https://waze.com/ul?ll=${c.lat.toFixed(6)}%2C${c.lon.toFixed(6)}&navigate=yes&utm_source=era-scout`;
+  }
+  if (c.street && c.number && c.postcode) return `https://waze.com/ul?q=${encodeURIComponent(fullAddress(c))}&navigate=yes&utm_source=era-scout`;
+  return null;
+}
+const wazeBtn = (c, cls = "btn sm outline") => {
+  const u = wazeUrl(c);
+  return u ? `<a class="${cls}" href="${u}" target="_blank" rel="noopener">${icon("nav", "sm")} Open in Waze</a>`
+    : `<span class="tag" title="Adres onvolledig">Geen Waze-link: adres onvolledig</span>`;
+};
+
+function checkRow(label, chk, fallbackUrl) {
+  if (!chk) return `<div class="chk"><span class="chk-l">${label}</span><span class="pill muted">Nog niet gecontroleerd</span>${fallbackUrl ? `<a class="chk-a" href="${esc(fallbackUrl)}" target="_blank" rel="noopener">${icon("chev", "sm")}</a>` : ""}</div>`;
+  const [txt, cls] = CHECK_LABEL[chk.status] || ["Onbekend", "muted"];
+  const stale = !chk.fresh && chk.status !== "not_applicable";
+  const ls = chk.last_success;
+  const url = chk.url || fallbackUrl;
+  return `<div class="chk"><span class="chk-l">${label}</span><span class="pill ${stale ? "muted" : cls}">${txt}${stale ? " · verouderd" : ""}</span>
+      <span class="tiny faint">${fmtStamp(chk.checked_at)}</span>${url ? `<a class="chk-a" href="${esc(url)}" target="_blank" rel="noopener" aria-label="Open advertentie">${icon("chev", "sm")}</a>` : ""}</div>
+    ${chk.reason && chk.status !== "active" ? `<div class="tiny muted chk-r">${esc(chk.reason)}</div>` : ""}
+    ${ls && ls.checked_at !== chk.checked_at && (stale || ["failed", "unknown"].includes(chk.status)) ? `<div class="tiny faint chk-r">Laatste geslaagde controle: ${esc((CHECK_LABEL[ls.status] || [ls.status])[0].toLowerCase())} op ${fmtStamp(ls.checked_at)}</div>` : ""}`;
+}
+
+function propertyCard(c, prefs) {
+  const first = prefs.basis === "first";
+  const days = first ? c.days_first : c.days_current;
+  const since = first ? c.first_start : c.current_start;
+  const badges = [];
+  if (c.relisted) badges.push(c.relist_certain ? '<span class="tag gold">Opnieuw aangeboden</span>' : '<span class="tag gold" title="Nieuwe marktdatum zonder bewijs dat de vorige aanbieding stopte">Mogelijk opnieuw aangeboden</span>');
+  if (c.records > 1) badges.push(`<span class="tag" title="${esc((c.record_ids || []).join(", "))}">${c.records} records samengevoegd</span>`);
+  if (c.shared_with && c.shared_with.length) badges.push(`<span class="tag red">Ook bij ${esc(c.shared_with.join(", "))}</span>`);
+  if (c.open_reviews) badges.push('<span class="tag">Koppeling te controleren</span>');
+  if (c.lat == null || c.geo_quality === "unsure") badges.push('<span class="tag">Locatie onzeker</span>');
+  const dec = DECISION_LABEL[c.decision] || c.decision;
+  return `<article class="pcard ${c.selected ? "sel" : ""} d-${c.decision}" data-pid="${c.id}">
+    <div class="pcard-top">
+      <button class="pick" data-pick-prop="${c.id}" aria-pressed="${c.selected}" aria-label="${c.selected ? "Verwijder uit selectie" : "Selecteer"}">${c.selected ? icon("check") : ""}</button>
+      <div class="grow">
+        <div class="pcard-addr">${esc(c.address || "Adres onbekend")}</div>
+        <div class="small muted">${esc([c.postcode, c.city].filter(Boolean).join(" "))}${c.object_type ? ` · ${esc(c.object_type)}` : ""}${c.price ? ` · ${euro(c.price)}` : ""}</div>
+      </div>
+      <div class="pcard-days">${days != null ? `<b class="num">${days}</b><span>dagen</span>` : '<span class="tiny muted">datum<br>ontbreekt</span>'}</div>
+    </div>
+    <div class="tiny muted" style="margin:6px 0 0">${since ? `Sinds ${fmtLong(since)} · ${first ? "eerste bekende aanbieding" : "huidige aanbieding"}` : "Geen betrouwbare marktdatum in de bron: geen ouderdom berekend"}${
+      c.relisted && !first && c.first_start ? ` · eerste bekende aanbieding ${fmtLong(c.first_start)}` : ""}</div>
+    ${badges.length ? `<div class="row wrap" style="gap:6px;margin-top:8px">${badges.join("")}</div>` : ""}
+    <div class="chks">
+      ${checkRow("Immoweb", c.immoweb, c.immoweb_url)}
+      ${checkRow("Makelaar", c.agency_check, c.agency_url)}
+      ${c.manual && c.manual.id ? `<div class="tiny muted chk-r">Handmatig: ${c.manual.status === "active" ? "nog te koop" : "niet meer te koop"} (${fmtDate(c.manual.observed_on)}, ${esc(c.manual.origin)})</div>` : ""}
+    </div>
+    <div class="row spread" style="margin-top:8px"><span class="pill ${c.decision === "eligible" ? "ok" : c.decision === "not_for_sale" ? "red" : "warn"}">${dec}</span>
+      <span class="tiny muted" style="text-align:right">${esc(c.decision_reason || "")}</span></div>
+    <div class="row wrap" style="gap:6px;margin-top:10px">
+      ${wazeBtn(c)}
+      <button class="btn sm ghost" data-recheck="${c.id}" ${c.request_pending ? "disabled" : ""}>${icon("refresh", "sm")} ${c.request_pending ? "Aangevraagd" : "Controleer"}</button>
+      <button class="btn sm ghost" data-confirm="${c.id}">${icon("check", "sm")} Bevestig</button>
+      ${c.realo_url ? `<a class="btn sm ghost" href="${esc(c.realo_url)}" target="_blank" rel="noopener">Realo</a>` : ""}
+    </div>
+  </article>`;
+}
+
+async function loadAanbellen(params = {}) {
+  AB.busy = true;
+  try { AB.data = await rpc("scout_overview", { p_min_days: params.min_days ?? null, p_basis: params.basis ?? null }); }
+  finally { AB.busy = false; }
+  return AB.data;
+}
+
+async function viewAanbellen() {
+  app.innerHTML = `<header class="topbar"><h1>Aanbellen</h1></header><div class="stack">${listTabs("a")}
+    <div class="panel"><p class="muted" style="margin:0">Eigen prospecten laden…</p></div></div>`;
+  on("[data-href]", "click", (e) => go(e.currentTarget.dataset.href));
+  await loadAanbellen();
+  paintAanbellen();
+}
+
+function paintAanbellen() {
+  const d = AB.data, pr = d.prefs, src = d.source;
+  const cards = d.cards;
+  const by = (k) => cards.filter((c) => c.decision === k);
+  const groups = { eligible: by("eligible"), check: by("needs_check"), selected: cards.filter((c) => c.selected), gone: by("not_for_sale") };
+  const list = groups[AB.tab] || [];
+  const nSel = groups.selected.length;
+  const tab = (k, l) => `<button data-abtab="${k}" aria-pressed="${AB.tab === k}">${l} <span class="num">${groups[k].length}</span></button>`;
+  app.innerHTML = `<header class="topbar"><h1>Aanbellen</h1><span class="tag" title="Bron">${esc(src.label || "ERAforce")}</span></header>
+  <div class="stack" style="padding-bottom:${nSel ? 96 : 20}px">
+    ${listTabs("a")}
+    ${!src.linked ? `<div class="notice warn">${icon("alert")}<span>Je ERA Scout-account is nog niet gekoppeld aan een ERAforce-gebruiker. Dat gebeurt automatisch bij hetzelfde e-mailadres; anders kan een beheerder het koppelen in Beheer.</span></div>` : ""}
+    ${!src.last_import ? `<div class="notice">${icon("clock")}<span>Nog geen gegevens uit ERAforce. De koppeling op de Mac moet nog één keer lopen.</span></div>` : ""}
+    <section class="panel tight stack">
+      <div class="row spread"><span class="label">Meer dan … dagen op de markt</span>
+        <div class="row"><button class="icon-btn" data-days="-30" aria-label="30 dagen minder">−</button>
+          <b class="num" style="font-size:24px;min-width:52px;text-align:center">${pr.min_days}</b>
+          <button class="icon-btn" data-days="30" aria-label="30 dagen meer">${icon("plus", "sm")}</button></div></div>
+      <div class="chips">${[60, 90, 120, 180].map((n) => `<button class="chip" data-setdays="${n}" aria-pressed="${pr.min_days === n}">${n}</button>`).join("")}</div>
+      <p class="hint" style="margin:0">Een pand komt in aanmerking vanaf dag ${pr.min_days + 1}.</p>
+      <div class="seg" role="group" aria-label="Berekening"><button data-basis="current" aria-pressed="${pr.basis === "current"}">Huidige aanbieding</button><button data-basis="first" aria-pressed="${pr.basis === "first"}">Eerste aanbieding</button></div>
+      ${pr.basis === "first" ? '<p class="hint" style="margin:0">Tijd sinds de eerste bekende aanbieding. Het pand kan tussendoor offline geweest zijn: dit is niet hetzelfde als “aantal dagen actief te koop”.</p>' : ""}
+    </section>
+    <div class="row wrap tiny muted" style="gap:10px">
+      <span>Import: ${fmtStamp(src.last_import)}</span>
+      <span>Laatste controle: ${src.last_run ? fmtStamp(src.last_run.finished_at) : "nog geen"}</span>
+      ${src.running ? '<span class="tag gold">Controle bezig</span>' : ""}${src.pending_requests ? `<span class="tag">${src.pending_requests} aangevraagd</span>` : ""}
+    </div>
+    <div class="seg" role="tablist">${tab("eligible", "Geschikt")}${tab("check", "Controle nodig")}${tab("selected", "Gekozen")}</div>
+    ${AB.tab === "check" ? '<p class="small muted" style="margin:0">Geen actieve aanbieding bevestigd, of een bron kon niet gecontroleerd worden. Een time-out of blokkade betekent niet dat het pand offline is.</p>' : ""}
+    ${AB.tab === "selected" && groups.selected.some((c) => c.decision !== "eligible") ? `<div class="notice warn">${icon("alert")}<span>Een of meer gekozen panden zijn intussen niet meer bevestigd als te koop. Controleer je selectie.</span></div>` : ""}
+    <div class="row spread"><span class="small muted">${list.length} ${list.length === 1 ? "pand" : "panden"}${AB.tab === "eligible" ? ` · ${d.below_threshold} korter dan ${pr.min_days + 1} dagen niet getoond` : ""}</span>
+      ${AB.tab !== "selected" && list.length ? `<button class="btn sm ghost" id="recheck-all">${icon("refresh", "sm")} Alles controleren</button>` : ""}</div>
+    ${list.length ? list.slice(0, AB.shown).map((c) => propertyCard(c, pr)).join("") : `<div class="panel" style="text-align:center"><p class="muted" style="margin:0">${
+      AB.tab === "selected" ? "Nog geen panden gekozen. Tik op het vakje bij een pand." : AB.tab === "eligible" ? "Geen bevestigde panden boven je grens. Kijk bij ‘Controle nodig’ of verlaag het aantal dagen." : "Niets te controleren."}</p></div>`}
+    ${list.length > AB.shown ? `<button class="btn outline block" id="more">Toon meer (${list.length - AB.shown} resterend)</button>` : ""}
+    ${groups.gone.length ? `<button class="btn ghost block" data-abtab="gone">${groups.gone.length} niet meer te koop bekijken</button>` : ""}
+  </div>
+  ${nSel ? `<div class="save-bar"><div><a class="btn primary xl block" href="#/aanbellen/route">${icon("nav")} ${nSel} gekozen · Bezoekvolgorde</a></div></div>` : ""}`;
+
+  on("[data-href]", "click", (e) => go(e.currentTarget.dataset.href));
+  on("[data-abtab]", "click", (e) => { AB.tab = e.currentTarget.dataset.abtab; AB.shown = 25; paintAanbellen(); window.scrollTo(0, 0); });
+  on("#more", "click", () => { AB.shown += 25; paintAanbellen(); });
+  const setPrefs = async (p) => { await loadAanbellen(p); AB.shown = 25; paintAanbellen(); };
+  on("[data-days]", "click", (e) => setPrefs({ min_days: Math.max(0, pr.min_days + +e.currentTarget.dataset.days) }));
+  on("[data-setdays]", "click", (e) => setPrefs({ min_days: +e.currentTarget.dataset.setdays }));
+  on("[data-basis]", "click", (e) => setPrefs({ basis: e.currentTarget.dataset.basis }));
+  on("[data-pick-prop]", "click", async (e) => {
+    const id = +e.currentTarget.dataset.pickProp;
+    const c = AB.data.cards.find((x) => x.id === id);
+    c.selected = !c.selected;
+    paintAanbellen();
+    try { await rpc("scout_select", { p_property: id, p_selected: c.selected }); }
+    catch (err) { c.selected = !c.selected; paintAanbellen(); toast(err.message); }
+  });
+  on("[data-recheck]", "click", async (e) => {
+    const id = +e.currentTarget.dataset.recheck;
+    try { await rpc("scout_request_check", { p_property: id }); AB.data.cards.find((x) => x.id === id).request_pending = true; paintAanbellen(); toast("Controle aangevraagd. De Mac voert ze uit zodra hij online is."); }
+    catch (err) { toast(err.message); }
+  });
+  on("#recheck-all", "click", async () => {
+    try { const r = await rpc("scout_request_check", { p_property: null }); toast(`${r.requested} controles aangevraagd`); await setPrefs({}); }
+    catch (err) { toast(err.message); }
+  });
+  on("[data-confirm]", "click", (e) => confirmSheet(+e.currentTarget.dataset.confirm));
+}
+
+function confirmSheet(id) {
+  const c = AB.data.cards.find((x) => x.id === id);
+  const st = { status: "active", origin: "Ter plaatse gezien" };
+  layer.innerHTML = `<div class="overlay" role="dialog" aria-modal="true" aria-label="Handmatig bevestigen"><div class="sheet stack">
+    <div><span class="label">Handmatig bevestigen</span><h2 style="margin-top:6px">${esc(c.address)}</h2></div>
+    <div class="seg" role="group"><button data-cs="active" aria-pressed="true">Nog te koop</button><button data-cs="not_active" aria-pressed="false">Niet meer te koop</button></div>
+    <label class="field"><span class="label">Vastgesteld op</span><input class="input" type="date" id="cf-date" value="${ymd(new Date())}" max="${ymd(new Date())}"></label>
+    <div><span class="label">Herkomst</span><div class="chips" style="margin-top:8px">${["Ter plaatse gezien", "Telefonisch", "Website makelaar", "Andere"].map((o) =>
+      `<button class="chip" data-co="${o}" aria-pressed="${o === st.origin}">${o}</button>`).join("")}</div></div>
+    <label class="field"><span class="label">Notitie · optioneel</span><input class="input" id="cf-note" maxlength="280" placeholder="bv. bord ‘te koop’ hangt nog"></label>
+    <p class="error" id="cf-err"></p>
+    <button class="btn primary xl block" id="cf-save">Opslaan</button><button class="btn ghost block" id="cf-x">Annuleren</button></div></div>`;
+  on("[data-cs]", "click", (e) => { st.status = e.currentTarget.dataset.cs; $$("[data-cs]", layer).forEach((b) => b.setAttribute("aria-pressed", b === e.currentTarget)); }, layer);
+  on("[data-co]", "click", (e) => { st.origin = e.currentTarget.dataset.co; $$("[data-co]", layer).forEach((b) => b.setAttribute("aria-pressed", b === e.currentTarget)); }, layer);
+  on("#cf-x", "click", closeLayer, layer);
+  on("#cf-save", "click", async () => {
+    try {
+      const r = await rpc("scout_confirm", { p_property: id, p_status: st.status, p_observed_on: $("#cf-date").value, p_origin: st.origin, p_note: $("#cf-note").value || null });
+      Object.assign(c, r.card);
+      closeLayer(); paintAanbellen(); toast("Bevestiging opgeslagen");
+    } catch (err) { $("#cf-err").textContent = err.message; }
+  }, layer);
+}
+
+/* ------------------------------------------------------------ route --- */
+/* Rijtijden en -afstanden over de weg via OSRM (OpenStreetMap, router.project-osrm.org), zonder verkeer.
+   Volgorde: dichtstbijzijnde eerst, daarna verbeterd met 2-opt. Een voorstel, geen gegarandeerd snelste route.
+   Lukt OSRM niet, dan een benadering in vogelvlucht (duidelijk vermeld, zonder rijtijd). */
+
+const RT = { plan: null, matrix: null };
+
+async function geocodeAddress(q) {
+  const r = await fetch(`https://geo.api.vlaanderen.be/geolocation/v4/Location?c=1&q=${encodeURIComponent(q)}`);
+  const x = ((await r.json()).LocationResult || [])[0];
+  if (!x) throw new Error("Adres niet gevonden. Vul straat, nummer en gemeente in.");
+  return { label: x.FormattedAddress, lat: x.Location.Lat_WGS84, lon: x.Location.Lon_WGS84 };
+}
+
+async function roadMatrix(points) {
+  try {
+    const coords = points.map((p) => `${p.lon.toFixed(6)},${p.lat.toFixed(6)}`).join(";");
+    const r = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration,distance`);
+    const d = await r.json();
+    if (d.code !== "Ok" || !d.durations) throw new Error(d.code);
+    return { method: "osrm", dur: d.durations, dist: d.distances };
+  } catch {
+    const n = points.length, dist = [...Array(n)].map((_, i) => [...Array(n)].map((__, j) => distanceM(points[i].lat, points[i].lon, points[j].lat, points[j].lon)));
+    return { method: "vogelvlucht", dur: dist, dist };
+  }
+}
+
+/* Open pad: start (0) vast, optioneel einde (laatste index) vast. Geeft de volgorde van de tussenliggende indexen. */
+function orderStops(cost, n, hasEnd) {
+  const end = hasEnd ? n - 1 : null;
+  const todo = new Set([...Array(n).keys()].filter((i) => i !== 0 && i !== end));
+  const route = [];
+  let cur = 0;
+  while (todo.size) {
+    let best = null;
+    for (const j of todo) if (best === null || cost[cur][j] < cost[cur][best]) best = j;
+    route.push(best); todo.delete(best); cur = best;
+  }
+  const total = (r) => { let t = 0, prev = 0; for (const j of r) { t += cost[prev][j]; prev = j; } if (end !== null) t += cost[prev][end]; return t; };
+  let improved = true, guard = 0;
+  while (improved && guard++ < 50) {
+    improved = false;
+    for (let i = 0; i < route.length - 1; i++) for (let k = i + 1; k < route.length; k++) {
+      const cand = [...route.slice(0, i), ...route.slice(i, k + 1).reverse(), ...route.slice(k + 1)];
+      if (total(cand) + 1e-6 < total(route)) { route.splice(0, route.length, ...cand); improved = true; }
+    }
+  }
+  return route;
+}
+
+function legTotals(plan) {
+  if (!RT.matrix || plan.method === "vogelvlucht") return null;
+  const idx = (id) => plan.points.findIndex((p) => p.id === id);
+  let dur = 0, dist = 0, prev = 0;
+  const legs = {};
+  for (const id of plan.order) { const j = idx(id); if (j < 0) return null; legs[id] = RT.matrix.dur[prev][j]; dur += RT.matrix.dur[prev][j]; dist += RT.matrix.dist[prev][j]; prev = j; }
+  if (plan.end) { const j = plan.points.length - 1; dur += RT.matrix.dur[prev][j]; dist += RT.matrix.dist[prev][j]; }
+  return { dur, dist, legs };
+}
+
+async function viewRoute() {
+  if (!AB.data) await loadAanbellen();
+  const saved = (await rpc("scout_route")).plan;
+  const sel = AB.data.cards.filter((c) => c.selected);
+  RT.plan = saved && saved.order ? { ...saved, order: saved.order.filter((id) => sel.some((c) => c.id === id)) } : null;
+  paintRoute(sel);
+}
+
+function paintRoute(sel) {
+  const plan = RT.plan;
+  const located = sel.filter((c) => c.lat != null && c.geo_quality !== "unsure");
+  const unlocated = sel.filter((c) => !located.includes(c));
+  const byId = Object.fromEntries(sel.map((c) => [c.id, c]));
+  const ordered = plan ? plan.order.map((id) => byId[id]).filter(Boolean) : [];
+  const done = new Set(plan?.done || []);
+  const next = ordered.find((c) => !done.has(c.id));
+  const tot = plan ? legTotals(plan) : null;
+  app.innerHTML = `${backBar("#/aanbellen", "Bezoekvolgorde")}
+  <div class="stack" style="padding-bottom:20px">
+    ${!sel.length ? `<div class="panel" style="text-align:center"><p class="muted" style="margin:0">Nog geen panden gekozen.</p><a class="btn outline block" href="#/aanbellen" style="margin-top:12px">Panden kiezen</a></div>` : `
+    <section class="panel stack">
+      <span class="label">Vertrek</span>
+      <div class="seg"><button data-sm="gps" aria-pressed="${(RT.startMode || "gps") === "gps"}">${icon("locate", "sm")} Mijn locatie</button><button data-sm="adres" aria-pressed="${RT.startMode === "adres"}">Adres</button></div>
+      ${RT.startMode === "adres" ? `<input class="input" id="start-adres" placeholder="Straat nr, gemeente" value="${esc(RT.startText || "")}">` : ""}
+      <span class="label">Einde</span>
+      <div class="seg"><button data-em="laatste" aria-pressed="${(RT.endMode || "laatste") === "laatste"}">Laatste pand</button><button data-em="start" aria-pressed="${RT.endMode === "start"}">Terug naar vertrek</button><button data-em="adres" aria-pressed="${RT.endMode === "adres"}">Adres</button></div>
+      ${RT.endMode === "adres" ? `<input class="input" id="end-adres" placeholder="Straat nr, gemeente" value="${esc(RT.endText || "")}">` : ""}
+      <p class="error" id="rt-err"></p>
+      <button class="btn primary xl block" id="calc">${icon("nav")} ${plan ? "Opnieuw berekenen" : "Bezoekvolgorde berekenen"} (${located.length})</button>
+    </section>
+    ${plan ? `
+    <div class="notice">${icon("alert")}<span>Voorstel${plan.method === "osrm" ? " op basis van rijtijden over de weg (OpenStreetMap, zonder verkeer)" : ": benadering in vogelvlucht, geen rijtijden"}. Je kan de volgorde zelf aanpassen.
+      ${tot ? `<br><b>± ${Math.round(tot.dur / 60)} min rijden · ${(tot.dist / 1000).toFixed(1)} km</b>` : plan.method === "osrm" ? "<br>Herbereken om rijtijden te tonen." : ""}</span></div>
+    ${next ? `<a class="btn primary xl block" href="${wazeUrl(next) || "#"}" target="_blank" rel="noopener">${icon("nav")} Navigeer naar stop ${ordered.indexOf(next) + 1}: ${esc(next.address)}</a>` : `<div class="notice ok">${icon("check")}<span>Alle stops afgewerkt.</span></div>`}
+    <div class="list">${ordered.map((c, i) => `<div class="item stop ${done.has(c.id) ? "done" : ""}" data-stop="${c.id}">
+      <span class="stop-n">${i + 1}</span>
+      <div class="grow"><div class="title">${esc(c.address)}</div><div class="sub">${esc(c.city || "")}${tot && tot.legs[c.id] != null ? ` · +${Math.round(tot.legs[c.id] / 60)} min` : ""}${c.decision !== "eligible" ? ` · <span style="color:var(--danger)">${esc(DECISION_LABEL[c.decision])}</span>` : ""}</div>
+        <div class="row wrap" style="gap:6px;margin-top:8px">${wazeBtn(c)}
+          <a class="btn sm ghost" href="#/registreer?adres=${encodeURIComponent(fullAddress(c))}${c.lat != null ? `&lat=${c.lat}&lon=${c.lon}` : ""}">${icon("plus", "sm")} Registreer</a>
+          <button class="btn sm ghost" data-done="${c.id}">${done.has(c.id) ? "Ongedaan" : icon("check", "sm") + " Gedaan"}</button></div></div>
+      <div class="stop-ctl"><button class="icon-btn" data-up="${c.id}" aria-label="Hoger" ${i === 0 ? "disabled" : ""}>${icon("up", "sm")}</button>
+        <button class="icon-btn" data-down="${c.id}" aria-label="Lager" ${i === ordered.length - 1 ? "disabled" : ""} style="transform:rotate(180deg)">${icon("up", "sm")}</button>
+        <button class="icon-btn" data-rm="${c.id}" aria-label="Uit route">${icon("x", "sm")}</button></div>
+    </div>`).join("")}</div>` : ""}
+    ${unlocated.length ? `<section class="panel stack"><span class="label">Niet in de route: locatie onzeker (${unlocated.length})</span>
+      <p class="small muted" style="margin:0">Zonder betrouwbare coördinaten plaatsen we deze panden niet op een willekeurige plek. Je kan er wel apart naartoe navigeren.</p>
+      ${unlocated.map((c) => `<div class="row spread"><span class="small">${esc(c.address)}</span>${wazeBtn(c)}</div>`).join("")}</section>` : ""}`}
+  </div>`;
+
+  on("[data-sm]", "click", (e) => { RT.startMode = e.currentTarget.dataset.sm; paintRoute(sel); });
+  on("[data-em]", "click", (e) => { RT.endMode = e.currentTarget.dataset.em; paintRoute(sel); });
+  on("#start-adres", "input", (e) => { RT.startText = e.target.value; });
+  on("#end-adres", "input", (e) => { RT.endText = e.target.value; });
+  const save = () => rpc("scout_save_route", { p_plan: { ...RT.plan, points: RT.plan.points } }).catch(() => {});
+  on("#calc", "click", async () => {
+    const btn = $("#calc"); btn.disabled = true; btn.textContent = "Berekenen…"; $("#rt-err").textContent = "";
+    try {
+      let start;
+      if ((RT.startMode || "gps") === "gps") {
+        try { const p = await getPosition(); start = { label: "Mijn locatie", lat: p.lat, lon: p.lon }; }
+        catch (e) { RT.startMode = "adres"; paintRoute(sel); $("#rt-err").textContent = `${e.message} Vul een vertrekadres in.`; return; }
+      } else start = await geocodeAddress(RT.startText || "");
+      let end = null;
+      if (RT.endMode === "start") end = { ...start, label: "Terug naar vertrek" };
+      if (RT.endMode === "adres") end = await geocodeAddress(RT.endText || "");
+      const stops = located.map((c) => ({ id: c.id, lat: c.lat, lon: c.lon }));
+      const points = [{ id: "start", ...start }, ...stops, ...(end ? [{ id: "end", ...end }] : [])];
+      RT.matrix = await roadMatrix(points);
+      const order = orderStops(RT.matrix.dur, points.length, !!end).map((i) => points[i].id);
+      RT.plan = { start, end, method: RT.matrix.method, points, order, done: [], computed_at: new Date().toISOString() };
+      await save(); paintRoute(sel);
+    } catch (e) { $("#rt-err").textContent = e.message; btn.disabled = false; btn.textContent = "Opnieuw proberen"; }
+  });
+  const move = (id, delta) => {
+    const o = RT.plan.order, i = o.indexOf(id), j = i + delta;
+    if (j < 0 || j >= o.length) return;
+    [o[i], o[j]] = [o[j], o[i]]; save(); paintRoute(sel);
+  };
+  on("[data-up]", "click", (e) => move(+e.currentTarget.dataset.up, -1));
+  on("[data-down]", "click", (e) => move(+e.currentTarget.dataset.down, 1));
+  on("[data-rm]", "click", async (e) => {
+    const id = +e.currentTarget.dataset.rm;
+    RT.plan.order = RT.plan.order.filter((x) => x !== id);
+    const c = AB.data.cards.find((x) => x.id === id); if (c) c.selected = false;
+    await rpc("scout_select", { p_property: id, p_selected: false }).catch(() => {});
+    save(); toast("Uit de route gehaald. Herbereken voor een nieuwe volgorde."); paintRoute(AB.data.cards.filter((x) => x.selected));
+  });
+  on("[data-done]", "click", (e) => {
+    const id = +e.currentTarget.dataset.done, d = new Set(RT.plan.done || []);
+    d.has(id) ? d.delete(id) : d.add(id); RT.plan.done = [...d]; save(); paintRoute(sel);
+  });
+}
+
+async function paintAdminAanbellen(members) {
+  const box = $("#adm-ab");
+  if (!box) return;
+  let r;
+  try { r = await rpc("scout_admin_reviews"); } catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  const kindLabel = { apartment_without_box: "Appartement zonder bus", realo_address_conflict: "Zelfde Realo-pand, ander adres", same_address_other_realo: "Zelfde adres, ander Realo-pand" };
+  box.innerHTML = `<span class="label">Medewerkers in ERAforce → ERA Scout</span>
+    <p class="small muted" style="margin:0">Prospects verschijnen bij de ERA Scout-gebruiker met hetzelfde e-mailadres als de prospecteigenaar in ERAforce. Wachtrijen zijn niet gekoppeld.</p>
+    <div class="list">${r.owners.filter((o) => !o.queue).map((o) => `<div class="item" data-owner="${esc(o.owner_key)}"><div class="grow"><div class="title small">${esc(o.label || o.owner_key)}</div>
+      <div class="sub tiny">${o.records} prospects · ${o.method === "manual" ? "handmatig" : o.profile_id ? "via e-mail" : "niet gekoppeld"}</div></div>
+      <select class="input" data-link style="width:150px;min-height:44px"><option value="">—</option>${members.filter((m) => m.active).map((m) => `<option value="${m.id}" ${m.id === o.profile_id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select></div>`).join("") || '<p class="small muted" style="padding:12px;margin:0">Nog geen import.</p>'}</div>
+    <span class="label">Te controleren koppelingen (${r.reviews.length})</span>
+    ${r.reviews.length ? r.reviews.slice(0, 30).map((v) => `<div class="panel stack" style="background:var(--surface-2)" data-review="${v.id}">
+      <b class="small">${esc(kindLabel[v.kind] || v.kind)}</b><div class="small">${esc(v.record_address)}${v.other_address ? `<br><span class="muted">vs. ${esc(v.other_address)}</span>` : ""}</div>
+      <div class="tiny muted">${esc(v.note || "")} · record ${esc(v.record)}</div>
+      <div class="row"><button class="btn sm outline grow" data-rv="merge">Zelfde pand</button><button class="btn sm ghost grow" data-rv="separate">Apart houden</button></div></div>`).join("")
+      : '<p class="small muted" style="margin:0">Geen twijfelgevallen.</p>'}`;
+  on("[data-link]", "change", async (e) => {
+    const key = e.currentTarget.closest("[data-owner]").dataset.owner;
+    try { await rpc("scout_admin_link_owner", { p_owner_key: key, p_profile: e.currentTarget.value || null }); toast("Koppeling opgeslagen"); } catch (err) { toast(err.message); }
+  }, box);
+  on("[data-rv]", "click", async (e) => {
+    const id = +e.currentTarget.closest("[data-review]").dataset.review;
+    try { await rpc("scout_admin_review_decide", { p_id: id, p_decision: e.currentTarget.dataset.rv }); toast("Beslissing opgeslagen"); paintAdminAanbellen(members); } catch (err) { toast(err.message); }
+  }, box);
+}
+
 /* ------------------------------------------------------------ admin --- */
 
 const roleSeg = (role) => [["member", "Lid"], ["admin", "Beheerder"]].map(([k, l]) =>
@@ -1674,6 +2045,9 @@ async function viewAdmin() {
       </div>`).join("")}
     </div></details>
 
+    <details class="adm" id="adm-aanbellen"><summary>${icon("door")} Aanbellen: koppelingen</summary><div class="body stack" id="adm-ab">
+      <p class="small muted" style="margin:0">Laden…</p></div></details>
+
     <details class="adm"><summary>${icon("crown")} Competitie</summary><div class="body stack">
       ${active ? `<div class="panel stack" style="background:var(--surface-2)"><b>${esc(active.name)}</b><div class="small muted">${fmtDate(active.starts_on)} – ${fmtDate(active.ends_on)} · ${active.participants} deelnemers</div>${active.reward ? `<div class="small">${esc(active.reward)}</div>` : ""}<button class="btn sm danger" data-end="${active.id}">Competitie beëindigen</button></div>` : '<p class="muted small">Geen actieve competitie.</p>'}
       ${upcoming.map((c) => `<div class="panel small" style="background:var(--surface-2)"><b>${esc(c.name)}</b> · start ${fmtDate(c.starts_on)} <button class="btn sm ghost" data-end="${c.id}">Annuleren</button></div>`).join("")}
@@ -1723,6 +2097,7 @@ async function viewAdmin() {
   </div>`;
 
   const done = (msg = "Opgeslagen") => { toast(msg); viewAdmin(); };
+  paintAdminAanbellen(o.members);
 
   on("#muni", "submit", async (e) => {
     e.preventDefault();

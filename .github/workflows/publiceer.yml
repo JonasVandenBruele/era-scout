@@ -60,6 +60,24 @@ jobs:
           DB_URL="postgresql://postgres.${SUPABASE_PROJECT_ID}:${WW}@${SUPABASE_DB_HOST}:5432/postgres"
           yes | supabase db push --db-url "$DB_URL"
 
+      # Importgebruiker voor Aanbellen (rol scout_import uit migratie 20261006000004): aanmelden met het geheim
+      # SCOUT_IMPORT_PASSWORD (gemaakt met scripts/scout-sleutel-maken.sh). Zonder geheim: overgeslagen.
+      - name: Importgebruiker Aanbellen
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SCOUT_IMPORT_PASSWORD: ${{ secrets.SCOUT_IMPORT_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+          SUPABASE_DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+        run: |
+          if [ -z "$SCOUT_IMPORT_PASSWORD" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::notice::Geen SCOUT_IMPORT_PASSWORD; importgebruiker niet ingesteld."
+            exit 0
+          fi
+          echo "::add-mask::$SCOUT_IMPORT_PASSWORD"
+          export PGPASSWORD="$SUPABASE_DB_PASSWORD"
+          echo "alter role scout_import with login password :'pw';" | psql -q -v ON_ERROR_STOP=1 -v pw="$SCOUT_IMPORT_PASSWORD" \
+            "host=$SUPABASE_DB_HOST port=5432 dbname=postgres user=postgres.$SUPABASE_PROJECT_ID sslmode=require"
+
       # De app heeft geen build-stap: kopiëren en config.js maken met de publieke Supabase-waarden.
       - name: Site samenstellen
         env:

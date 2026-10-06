@@ -394,3 +394,39 @@ details.adm > .body { padding: 0 16px 16px; }
 /* Uitklapbare "+ toevoegen"-regels zonder standaard driehoekje. */
 details > summary.label { list-style: none; }
 details > summary.label::-webkit-details-marker { display: none; }
+
+/* ---------- Aanbellen ---------- */
+.pcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; box-shadow: var(--hi); }
+.pcard.sel { border-color: var(--red); box-shadow: 0 0 0 1px var(--red), var(--hi); }
+.pcard.d-not_for_sale { opacity: .78; }
+.pcard-top { display: flex; gap: 12px; align-items: flex-start; }
+.pcard-addr { font-weight: 800; font-size: 16.5px; line-height: 1.25; overflow-wrap: anywhere; }
+.pcard-days { text-align: right; flex: none; min-width: 58px; }
+.pcard-days b { display: block; font-size: 26px; font-weight: 900; line-height: 1; color: var(--gold); }
+.pcard-days span { font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+/* Grote, duidelijke selectieknop (min. 44 px tikvlak). */
+.pick { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 2px solid var(--line-2); background: var(--input-bg); color: #fff;
+  display: grid; place-items: center; cursor: pointer; }
+.pick[aria-pressed="true"] { background: var(--red); border-color: var(--red); box-shadow: 0 4px 14px var(--red-glow); }
+.pick svg { width: 24px; height: 24px; stroke-width: 3; }
+.chks { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.chk { display: flex; align-items: center; gap: 8px; min-height: 34px; }
+.chk-l { width: 74px; flex: none; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.chk .tiny { margin-left: auto; white-space: nowrap; }
+.chk-a { width: 36px; height: 36px; display: grid; place-items: center; color: var(--ink); flex: none; }
+.chk-r { margin: 0 0 4px 82px; }
+.pill { display: inline-flex; align-items: center; font-size: 12px; font-weight: 800; padding: 4px 9px; border-radius: 999px; white-space: nowrap;
+  background: var(--surface-3); color: var(--muted); }
+.pill.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.pill.gold { background: color-mix(in srgb, var(--gold) 18%, transparent); color: var(--gold); }
+.pill.red { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+.pill.warn { background: color-mix(in srgb, var(--gold) 12%, transparent); color: var(--gold); border: 1px dashed color-mix(in srgb, var(--gold) 60%, transparent); }
+.stop { align-items: flex-start !important; }
+.stop-n { width: 34px; height: 34px; border-radius: 10px; background: var(--red); color: #fff; font-weight: 900; display: grid; place-items: center; flex: none; }
+.stop.done { opacity: .55; }
+.stop.done .stop-n { background: var(--ok); }
+.stop-ctl { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.stop-ctl .icon-btn { width: 38px; height: 38px; border-radius: 10px; }
+.stop .title { overflow-wrap: anywhere; }
+.icon-btn:disabled { opacity: .3; }
+@media (max-width: 360px) { .chk-l { width: 62px; } .chk-r { margin-left: 70px; } .pcard-days b { font-size: 22px; } }

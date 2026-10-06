@@ -78,6 +78,68 @@ app gepubliceerd op `https://jonasvandenbruele.github.io/era-scout/`.
 - Levels op totale XP; ranking per week, maand en competitie, gelijke posities bij gelijke score.
   Standaard dagdoel: 10 deuren, per persoon instelbaar met werkdagen en verlof (geen streaks).
 
+## Aanbellen (eigen prospecten die lang te koop staan)
+
+Elke prospecteur ziet **enkel zijn eigen prospecten** uit ERAforce met bron *Marketpulse*: panden die meer dan een
+zelf gekozen aantal dagen te koop staan (standaard 90, dus vanaf dag 91) en die bij een actuele controle nog te koop
+blijken. Hij kiest zelf welke panden hij bezoekt; de app stelt een volgorde voor en opent Waze per stop.
+
+### Bron en koppeling
+
+| Wat | Waar |
+|---|---|
+| Bron | ERAForce-mirror op de Mac (`mirror.sqlite` in de versleutelde kluis), object **Lead** met `LeadSource = 'Marketpulse'` |
+| Doorsturen | `scripts/scout_worker.py import`, automatisch na elke mirror-run (07:00 en 19:00) via `eraforce-mirror/mirror.py` |
+| Schrijven in Supabase | rol `scout_import`, enkel via de functies in schema `worker`; wachtwoord in de sleutelhanger (“ERA Scout import (Supabase)”) en als GitHub-geheim `SCOUT_IMPORT_PASSWORD` |
+| Controles | `scripts/scout_worker.py controleer`, elke 15 minuten via launchd (`mac/…era-scout-controle.plist`): aangevraagde panden, en één volledige controle per dag vanaf 06:00 |
+
+Gebruikte ERAforce-velden: `ERA_Straat__c`, `ERA_Huisnummer__c`, `ERA_Bus__c`, `ERA_Postcode__c`, `ERA_Gemeente__c`,
+`ERA_Geolocation__*`, `ERA_Datum_op_de_markt__c` (start van de aanbieding volgens Marketpulse), `CreatedDate` (enkel als
+importdatum, **nooit** als verkoopstart), `ERA_Datum_Verkocht_Be_indigd__c`, `Status`, `ERA_Reden__c`, `OwnerId`
+(gebruiker → e-mailadres → ERA Scout-profiel; wachtrijen worden niet gekoppeld), `ERA_URL_2__c` (Immoweb),
+`ERA_Explorer_URL__c` (Realo, met een stabiel pand-ID), prijs, type en bron/bemiddelaar. Namen, telefoonnummers en
+e-mailadressen van personen worden **niet** doorgestuurd. Let op: `ERA_Aantal_dagen_op_de_markt__c` in ERAforce is de
+ouderdom op het moment van de import en wordt niet bijgewerkt; ERA Scout rekent zelf vanaf de marktdatum.
+
+### Dubbels en nieuwe aanbiedingen
+
+Bronrecords worden gekoppeld aan een **fysiek pand**: eerst via het Realo-pand-ID, dan via het genormaliseerde adres
+(straat zonder accenten en met afkortingen voluit, huisnummer, bus, postcode). Appartementen zonder bus in een gebouw
+met andere units, of een Realo-ID met een ander adres, worden **niet** samengevoegd maar gemarkeerd (Beheer →
+Aanbellen: koppelingen). Verkoopperiodes volgen uit de marktdatums (binnen 30 dagen = dezelfde aanbieding). Een nieuwe
+periode is *bevestigd* als een eerder record vóór de nieuwe datum beëindigd was, anders *mogelijk opnieuw aangeboden*.
+
+Bruikbare records: open prospects en beëindigde met een reden zoals *Automatically ended* of *Mogelijk uit verkoop*.
+Niet bruikbaar: *Reeds verkocht/verhuurd*, *Dubbele prospect*, *No lead*, *Niet gekwalificeerd*, *Vrijblijvende
+schatting* en geconverteerde prospects.
+
+### Controles en beslissing
+
+Per pand: **Immoweb** (gestructureerde advertentiegegevens: verkocht, onder optie, te koop; 404 of doorverwijzing =
+niet meer gevonden) en de **makelaarswebsite** (website en referentie uit Immoweb, pand zoeken via de sitemap, enkel
+een pagina die de referentie of het adres van dit pand bevat telt). Geldt: actief op minstens één bron → geschikt;
+op alle toepasselijke bronnen aantoonbaar niet meer actief → niet meer te koop; anders → *controle nodig*. Een
+time-out, blokkade of captcha telt nooit als offline; een oudere geslaagde controle blijft zichtbaar maar telt niet
+als nieuwe bevestiging (een controle is 36 uur “vers”). Een gebruiker kan handmatig bevestigen (datum + herkomst).
+Captcha's worden niet omzeild; de controle identificeert zich eerlijk als `ERAScout-controle/1.0` en volgt robots.txt.
+**Realo** toont een captcha en wordt daarom niet automatisch gecontroleerd (enkel als link).
+
+### Volgorde en Waze
+
+Rijtijden en -afstanden over de weg via OSRM (OpenStreetMap, zonder verkeer); volgorde: dichtstbijzijnde eerst,
+verbeterd met 2-opt. Panden zonder betrouwbare locatie komen niet in de route. Waze: `https://waze.com/ul?ll=…&navigate=yes`
+(officieel formaat; opent de app of de website). Waze kan geen route met meerdere stops ontvangen: navigeer per stop.
+
+### Eenmalig op de Mac
+
+```bash
+scripts/scout-sleutel-maken.sh
+```
+
+```bash
+scripts/mac-installeren.sh
+```
+
 ## Locatie en privacy
 
 De app vraagt de locatie enkel bij een tik op het vizier (of automatisch bij "Registreer bezoek"
@@ -110,4 +172,5 @@ ingebouwde Postgres) en de app op http://localhost:54321. Enkel voor testen.
 | `app/` | de web-app (schermen, stijl, service worker, iconen, `vendor/supabase.js` 2.117.2) |
 | `supabase/migrations/` | schema, spelregels (`app.*`) en API-functies (`public.*`) |
 | `tests/` | tests van spelregels, rechten en adresfuncties tegen Postgres |
-| `scripts/` | lokale nabootsing van Supabase |
+| `scripts/` | lokale nabootsing van Supabase, `scout_worker.py` (bronkoppeling en controles op de Mac) |
+| `mac/` | achtergrondtaak (launchd) voor de controles |
