@@ -216,6 +216,9 @@ class AanbellenTest(AanbellenBase):
         details = Jsonb({"agency_type": "AGENCY", "agency_website": "https://www.immotest.be"})
         self.worker("select worker.save_check(%s, %s, 'immoweb', 'https://x', 'active', 'ok', null, null, 200, %s)", run, a, details)
         self.assertEqual(self.cards()[c]["agency_url"], "https://www.immotest.be")       # geleerd via ander pand
+        guess = Jsonb({"agency_website": "https://geraden.be", "website_source": "guess"})
+        self.worker("select worker.save_check(%s, %s, 'agency', 'https://x', 'unknown', 'x', null, null, 200, %s)", run, a, guess)
+        self.assertEqual(self.cards()[c]["agency_url"], "https://www.immotest.be")       # afgeleid overschrijft Immoweb niet
         self.sofie.call("admin_set_agency_site", p_name="IMMO test", p_website="https://immo-test.be")
         self.worker("select worker.save_check(%s, %s, 'immoweb', 'https://x', 'active', 'ok', null, null, 200, %s)", run, a, details)
         self.assertEqual(self.cards()[c]["agency_url"], "https://immo-test.be")          # handmatig wint

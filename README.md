@@ -180,6 +180,17 @@ ingebouwde Postgres) en de app op http://localhost:54321. Enkel voor testen.
 - **Naam:** Marketpulse zet het concurrerende kantoor in *Bron/Bemiddelaar* tussen haakjes, of in de prospectnaam als `straat nr, postcode gemeente, kantoor` (zonder voornaam). Alleen in die twee vormen neemt de worker de naam over (`agency_name`): nooit een persoonsnaam.
 - **Website:** Immoweb vermeldt de website van het kantoor bij de advertentie. Scout onthoudt die per kantoor (`agency_sites`), zodat ook panden die niet (meer) op Immoweb staan de link krijgen en op de site van de makelaar gecontroleerd worden. In *Beheer → Aanbellen* vul je ontbrekende websites zelf in; een handmatige website wordt nooit overschreven. Zonder bekende website toont de kaart een zoeklink.
 
+### Makelaarswebsites doorzoeken
+
+`scripts/makelaarsites.py` zoekt een pand op de website van het kantoor:
+
+1. **Website:** handmatig (Beheer) > uit Immoweb > afgeleid uit de kantoornaam (bv. *Immo Nuvo* → immonuvo.be). Een afgeleide website telt enkel als de startpagina de naam van het kantoor draagt én over vastgoed gaat. Op een afgeleide website telt alleen een positieve vondst; "niet gevonden" bewijst daar niets.
+2. **Overzicht:** één keer per dag per site worden de overzichtspagina's *te koop / aanbod / à vendre* (met paginering) en de sitemap gelezen. Dubbels in andere talen en nieuwbouwprojecten gaan eruit. Lokale dagcache in `~/.era-scout/sites`.
+3. **Zoeken:** kandidaten op referentie, straat, postcode of gemeente in het webadres. Sites met hoogstens 200 panden worden volledig gelezen; alleen dan betekent "niet bij de panden op de site" echt niet gevonden.
+4. **Status:** alleen als de pagina aantoonbaar over het pand gaat (referentie, straat + huisnummer, of straat + gemeente zonder ander huisnummer). *Verkocht / onder optie / te koop* telt enkel in de titel of vlak bij die vermelding.
+
+Publicatie-URL's in ERAforce zijn niet altijd Immoweb: Immoscoop, Immovlan en Spotto worden gelezen zoals een makelaarspagina; Zimmo en Realo weren automatische bezoeken en worden dus niet geprobeerd (de link blijft zichtbaar).
+
 ## Inkoopbonus
 
 Wordt een deur die een collega bezocht later een opdracht (verkoop of verhuur) in ERAforce, dan krijgt die collega extra punten.

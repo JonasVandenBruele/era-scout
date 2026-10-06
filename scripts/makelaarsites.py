@@ -21,7 +21,7 @@ import urllib.parse
 CACHE_DIR = os.environ.get("SCOUT_SITES_CACHE") or os.path.expanduser("~/.era-scout/sites")
 TTL = 20 * 3600
 MAX_OVERVIEW = 25          # overzichtspagina's per site
-MAX_PAGES_ALL = 150        # sites met hoogstens zoveel panden: alle pandpagina's lezen
+MAX_PAGES_ALL = 200        # sites met hoogstens zoveel panden: alle pandpagina's lezen
 MAX_FETCH_PER_ITEM = 8     # anders: hoogstens zoveel kandidaat-pagina's per pand
 
 BUY = re.compile(r"te-?koop|/kopen|aanbod|a-vendre|à-vendre|for-sale|chercher-bien|acheter|/buy|zoeken|panden|woningen|properties|biens|vastgoed", re.I)
@@ -172,7 +172,26 @@ def build_index(fetch, base, sitemap_urls):
                 todo.insert(0, l)       # volgende pagina van hetzelfde overzicht eerst
             elif looks_detail(l, base) and not NOT_BUY.search(l):
                 details.add(l)
-    return sorted(details)
+    return dedupe(details)
+
+
+PROJECT = re.compile(r"/(projecten|projects|projets|nieuwbouw|new-build|neufs?)/", re.I)
+
+
+def dedupe(urls):
+    """Zelfde pand in meerdere talen of met een ander webadres maar hetzelfde nummer: één keer. Projecten achteraan."""
+    urls = sorted(set(urls))
+    if any("/nl/" in u for u in urls):
+        urls = [u for u in urls if not re.search(r"/(fr|en|de)/", u)]
+    seen, out = set(), []
+    for u in sorted(urls, key=lambda u: ("/nl/" not in u, len(u))):
+        m = re.search(r"(\d{5,})/?$", urllib.parse.urlsplit(u).path)
+        key = m.group(1) if m else u
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(u)
+    return sorted(out, key=lambda u: (bool(PROJECT.search(u)), u))
 
 
 def looks_detail(u, base):
@@ -314,3 +333,68 @@ def find_on_site(fetch, base, item, reference, sitemap_urls_fn, extra_ids=()):
         return {"status": "not_found", "reason": f"Niet bij de {len(details)} panden op de makelaarswebsite", "url": base}
     return {"status": "unknown", "reason": "Pand niet teruggevonden op de makelaarswebsite (grote site, enkel kandidaten gelezen)",
             "url": base}
+
+
+# ------------------------------------------------------------ website zoeken ---
+
+LEGAL = {"bv", "bvba", "nv", "srl", "sprl", "sa", "cvba", "vof", "commv"}
+GENERIC = {"immo", "immobilien", "vastgoed", "real", "estate", "makelaars", "makelaar", "immobilier", "immobiliere", "group",
+           "groep", "kantoor", "agence", "de", "het", "en", "et", "the", "&"}
+
+
+def domain_guesses(name):
+    words = [w for w in norm(name).split() if w not in LEGAL]
+    if not words:
+        return []
+    cores = [words]
+    if len(words) > 2:
+        cores.append(words[:2])          # "Immolution Zemst Vilvoorde" → immolution
+        cores.append(words[:1]) if len(words[0]) >= 6 else None
+    out = []
+    for ws in cores:
+        for joined in ("".join(ws), "-".join(ws)):
+            for tld in (".be", ".com"):
+                d = joined + tld
+                if d not in out and len(joined) >= 4:
+                    out.append(d)
+    return out[:8]
+
+
+REAL_ESTATE = re.compile(r"\b(te koop|a vendre|for sale|vastgoed|immobilier|makelaar|vraagprijs|aanbod|biv)\b")
+
+
+def name_on_page(name, text, title):
+    low = norm(title + " " + text[:20000])
+    words = [w for w in norm(name).split() if w not in LEGAL]
+    specific = [w for w in words if w not in GENERIC and len(w) >= 3] or words
+    return bool(specific) and all(re.search(r"\b" + re.escape(w) + r"\b", low) or w in low.replace(" ", "") for w in specific)
+
+
+def guess_website(fetch, name):
+    """Website van een kantoor afleiden uit de naam. Enkel aanvaard als de startpagina de naam van het kantoor draagt."""
+    c = cache()
+    key = "_websites"
+    data = c.load(key)
+    hit = data.setdefault("guesses", {}).get(norm(name))
+    if hit and time.time() - hit.get("at", 0) < 30 * 86400:
+        return hit.get("website")
+    found = None
+    for d in domain_guesses(name):
+        for base in (f"https://www.{d}", f"https://{d}"):
+            try:
+                code, eff, html = fetch.get(base + "/", retries=0, timeout=12)
+            except Exception:  # noqa: BLE001 — domein bestaat niet of is onbereikbaar
+                continue
+            txt = page_text(html)
+            if code == 200 and name_on_page(name, txt, title_of(html)) and REAL_ESTATE.search(norm(txt[:30000])):
+                p = urllib.parse.urlsplit(eff)
+                found = f"{p.scheme}://{p.netloc}"
+                break
+            if code == 200:
+                break               # bestaat, maar is niet van dit kantoor
+        if found:
+            break
+    with c.lock:
+        data["guesses"][norm(name)] = {"at": time.time(), "website": found}
+    c.save(key)
+    return found

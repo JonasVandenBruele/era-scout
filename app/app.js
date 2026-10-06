@@ -1686,6 +1686,11 @@ function checkRow(label, chk, fallbackUrl) {
 
 const agencySearch = (c) => `https://www.google.com/search?q=${encodeURIComponent(`${c.agency_name} makelaar ${c.city || ""}`.trim())}`;
 
+const PORTALS = { "immoweb.be": "Immoweb", "zimmo.be": "Zimmo", "immoscoop.be": "Immoscoop", "immovlan.be": "Immovlan", "spotto.be": "Spotto", "realo.be": "Realo" };
+function portalName(url) {
+  try { return PORTALS[new URL(url).hostname.replace(/^www\./, "")] || "Zoekertje"; } catch { return "Immoweb"; }
+}
+
 function agencyLine(c) {
   const lbl = (c.agency || "").toLowerCase();
   const who = c.agency_name || (lbl.includes("particulier") ? "Particulier" : lbl.includes("notaris") ? "Notaris" : null);
@@ -1720,7 +1725,7 @@ function propertyCard(c, prefs) {
       c.relisted && !first && c.first_start ? ` · eerste bekende aanbieding ${fmtLong(c.first_start)}` : ""}</div>
     ${badges.length ? `<div class="row wrap" style="gap:6px;margin-top:8px">${badges.join("")}</div>` : ""}
     <div class="chks">
-      ${checkRow("Immoweb", c.immoweb, c.immoweb_url)}
+      ${checkRow(portalName(c.immoweb_url), c.immoweb, c.immoweb_url)}
       ${checkRow("Makelaar", c.agency_check, c.agency_url)}
       ${agencyLine(c)}
       ${c.manual && c.manual.id ? `<div class="tiny muted chk-r">Handmatig: ${c.manual.status === "active" ? "nog te koop" : "niet meer te koop"} (${fmtDate(c.manual.observed_on)}, ${esc(c.manual.origin)})</div>` : ""}
@@ -2037,7 +2042,7 @@ async function paintAdminAanbellen(members) {
     <span class="label">Websites van makelaars (${ag.agencies.filter((a) => a.website).length}/${ag.agencies.length})</span>
     <p class="small muted" style="margin:0">Scout leert de website uit Immoweb. Ontbreekt er een, vul ze zelf in (leeg = wissen).</p>
     <details><summary class="small">Toon kantoren</summary><div class="list">${ag.agencies.map((a) => `<form class="item" data-agency="${esc(a.name)}" style="flex-wrap:wrap;gap:6px">
-      <div class="grow" style="min-width:140px"><div class="title small">${esc(a.name)}</div><div class="sub tiny">${a.properties} panden${a.source ? ` · ${a.source === "manual" ? "handmatig" : "via Immoweb"}` : ""}</div></div>
+      <div class="grow" style="min-width:140px"><div class="title small">${esc(a.name)}</div><div class="sub tiny">${a.properties} panden${a.source ? ` · ${{ manual: "handmatig", immoweb: "via Immoweb", guess: "afgeleid uit de naam" }[a.source]}` : ""}</div></div>
       <input class="input" name="w" type="url" inputmode="url" placeholder="https://…" value="${esc(a.website || "")}" style="flex:1 1 180px;min-height:44px">
       <button class="btn sm ghost">Bewaar</button></form>`).join("")}</div></details>
     <span class="label">Te controleren koppelingen (${r.reviews.length})</span>

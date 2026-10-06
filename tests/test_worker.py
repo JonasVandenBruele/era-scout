@@ -9,6 +9,7 @@ os.environ["SCOUT_SITES_CACHE"] = tempfile.mkdtemp()  # nooit de echte dagcache 
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import scout_worker as w  # noqa: E402
+import makelaarsites as ms  # noqa: E402
 
 ITEM = {"property_id": 1, "street": "Kerkstraat", "number": "12", "box": None, "postcode": "1800", "city": "Vilvoorde",
         "immoweb_url": "https://www.immoweb.be/nl/zoekertje/huis/te-koop/vilvoorde/1800/12345678", "agency_label": "Marketpulse / Concurrent Makelaar"}
@@ -59,6 +60,36 @@ class WorkerTest(unittest.TestCase):
         q = w.lead_to_record({**lead, "OwnerId": "00GQ"}, {}, {"00GQ": "Wachtrij"})
         self.assertTrue(q["owner_is_queue"])
         self.assertIsNone(q["owner_email"])
+
+    def test_other_portals(self):
+        z = {**ITEM, "immoweb_url": "https://www.zimmo.be/nl/vilvoorde-1800/te-koop/huis/ABC12/"}
+        r = w.check_listing(FakeFetch({}), z)                                     # Zimmo weert bots: niet proberen
+        self.assertEqual((r["status"], r["details"]["portal"]), ("unknown", "Zimmo"))
+        u = "https://www.immoscoop.be/te-koop/1800-vilvoorde/1165292"
+        self.assertEqual(w.check_listing(FakeFetch({}), {**ITEM, "immoweb_url": u})["status"], "not_found")
+        page = "<title>Huis te koop</title><body>Kerkstraat 12, 1800 Vilvoorde. Te koop. Vraagprijs 350.000</body>"
+        self.assertEqual(w.check_listing(FakeFetch({u: (200, u, page)}), {**ITEM, "immoweb_url": u})["status"], "active")
+
+    def test_website_guess_rules(self):
+        self.assertEqual(ms.domain_guesses("Immo Nuvo")[:2], ["immonuvo.be", "immonuvo.com"])
+        self.assertIn("kasper-kent.be", ms.domain_guesses("Kasper & Kent"))
+        self.assertTrue(ms.name_on_page("Immo Willems BV", "Welkom bij Immo Willems", ""))
+        self.assertFalse(ms.name_on_page("Clavis", "Clavis software solutions", "") and
+                         ms.REAL_ESTATE.search(ms.norm("Clavis software solutions")))
+
+    def test_site_crawl(self):
+        base = "https://www.kantoortest.be"           # eigen site: de dagcache wordt gedeeld tussen tests
+        home = f'<a href="/nl/te-koop">Te koop</a><a href="/nl/verkopen">Verkopen</a>'
+        over = '<a href="/nl/huis-te-koop-in-vilvoorde/7881762">1</a><a href="/nl/te-koop?page=2">2</a>'
+        over2 = '<a href="/nl/appartement-te-koop-in-zaventem/7881999">3</a>'
+        det = "<title>Huis te koop in Vilvoorde</title>Kerkstraat 12 1800 Vilvoorde Onder optie"
+        fetch = FakeFetch({base + "/": (200, base + "/", home), base + "/nl/te-koop": (200, base + "/nl/te-koop", over),
+                           base + "/nl/te-koop?page=2": (200, base + "/nl/te-koop?page=2", over2),
+                           base + "/nl/huis-te-koop-in-vilvoorde/7881762": (200, base + "/nl/huis-te-koop-in-vilvoorde/7881762", det)})
+        r = ms.find_on_site(fetch, base, ITEM, None, lambda: [])
+        self.assertEqual((r["status"], r["evidence"]), ("under_option", "adres"))
+        other = ms.find_on_site(fetch, base, {**ITEM, "street": "Molenstraat", "number": "4"}, None, lambda: [])
+        self.assertEqual(other["status"], "not_found")                             # kleine site volledig gelezen
 
     def test_agency_name(self):
         base = {"ERA_Bron_Bemiddelaar__c": "Marketpulse / Concurrent Makelaar", "FirstName": None,

@@ -385,6 +385,51 @@ def check_immoweb(fetch, item):
     return {"status": "unknown", "reason": "Verkoopstatus niet duidelijk", "url": eff, "http": code, "details": details}
 
 
+PORTALS = {"immoweb.be": "Immoweb", "zimmo.be": "Zimmo", "immoscoop.be": "Immoscoop", "immovlan.be": "Immovlan",
+           "spotto.be": "Spotto", "realo.be": "Realo"}
+# Portalen die automatische bezoeken uitdrukkelijk weren (botbescherming/captcha): niet proberen, link tonen.
+NO_AUTOMATION = {"zimmo.be", "realo.be"}
+
+
+def portal_of(url):
+    host = urllib.parse.urlsplit(url or "").netloc.lower().removeprefix("www.")
+    return host, PORTALS.get(host, host or "Zoekertje")
+
+
+def check_listing(fetch, item):
+    """Publicatie-URL uit de bron controleren. Meestal Immoweb; soms een ander portaal."""
+    url = item.get("immoweb_url")
+    host, name = portal_of(url)
+    if not url or host == "immoweb.be":
+        r = check_immoweb(fetch, item)
+    elif host in NO_AUTOMATION:
+        r = {"status": "unknown", "reason": f"{name} laat geen automatische controle toe; open de link", "url": url}
+    else:
+        r = check_portal_page(fetch, item, url, name)
+    r.setdefault("details", {})
+    r["details"]["portal"] = name
+    return r
+
+
+def check_portal_page(fetch, item, url, name):
+    try:
+        code, eff, html = fetch.get(url)
+    except PermissionError as e:
+        return {"status": "failed", "reason": "Niet toegestaan door robots.txt", "error": str(e), "url": url}
+    except Exception as e:  # noqa: BLE001
+        return {"status": "failed", "reason": f"{name} niet bereikbaar (time-out of storing)", "error": type(e).__name__, "url": url}
+    if looks_blocked(code, html):
+        return {"status": "failed", "reason": f"{name} blokkeert de controle", "error": f"HTTP {code}", "url": url, "http": code}
+    path = urllib.parse.urlsplit(url).path.rstrip("/")
+    if code in (404, 410) or urllib.parse.urlsplit(eff).path.rstrip("/").count("/") < max(1, path.count("/") - 1):
+        return {"status": "not_found", "reason": f"Advertentie niet meer gevonden op {name} (HTTP {code})", "url": url, "http": code}
+    page = {"text": makelaarsites.page_text(html)[:60000], "title": makelaarsites.title_of(html), "url": eff}
+    res = makelaarsites.match_page(page, item, None)
+    if not res:
+        return {"status": "unknown", "reason": f"{name}: pagina bevat het adres niet", "url": eff, "http": code}
+    return {"status": res[0], "reason": res[1].replace("Makelaarswebsite", name), "evidence": res[2], "url": eff, "http": code}
+
+
 # =================================================== makelaarswebsite ==
 
 SOLD = re.compile(r"\b(verkocht|vendu|sold)\b", re.I)
@@ -459,6 +504,13 @@ def check_agency(fetch, item, iw, cache):
     if det.get("agency_type") and det["agency_type"] != "AGENCY" or "particulier" in label or "notaris" in label:
         return {"status": "not_applicable", "reason": "Geen makelaar (particulier of notaris)", "url": None,
                 "details": {"agency_website": website}}
+    guessed = False
+    if not website and item.get("agency_name"):
+        try:
+            website = makelaarsites.guess_website(fetch, item["agency_name"])
+            guessed = bool(website)
+        except Exception:  # noqa: BLE001
+            website = None
     if not website:
         return {"status": "unknown", "reason": "Website van de makelaar onbekend", "url": None}
     if not website.startswith("http"):
@@ -471,7 +523,10 @@ def check_agency(fetch, item, iw, cache):
     except Exception as e:  # noqa: BLE001
         return {"status": "failed", "reason": "Makelaarswebsite niet bereikbaar", "error": type(e).__name__, "url": base,
                 "details": {"agency_website": base}}
-    res["details"] = {"agency_website": base}
+    if guessed and res["status"] in ("not_found", "failed"):
+        # Afgeleide website: enkel een positieve vondst telt, "niet gevonden" bewijst hier niets.
+        res = {"status": "unknown", "reason": "Niet gevonden op de vermoedelijke website van de makelaar", "url": base}
+    res["details"] = {"agency_website": base, **({"website_source": "guess"} if guessed else {})}
     return res
 
 
@@ -516,7 +571,7 @@ def cmd_import(path):
 
 
 def check_one(fetch, con, run, item, cache):
-    iw = check_immoweb(fetch, item)
+    iw = check_listing(fetch, item)
     ag = check_agency(fetch, item, iw, cache)
     for site, r in (("immoweb", iw), ("agency", ag)):
         call(con, "select worker.save_check(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", run, item["property_id"], site,
