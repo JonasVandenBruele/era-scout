@@ -191,6 +191,16 @@ ingebouwde Postgres) en de app op http://localhost:54321. Enkel voor testen.
 
 Publicatie-URL's in ERAforce zijn niet altijd Immoweb: Immoscoop, Immovlan en Spotto worden gelezen zoals een makelaarspagina; Zimmo en Realo weren automatische bezoeken en worden dus niet geprobeerd (de link blijft zichtbaar).
 
+### Prospecten op hetzelfde adres
+
+Bij elke import leest de Mac alle prospecten (verkoper, verhuurder, koper) uit ERAforce met een adres, en ook hun *ander adres*. Naar Scout gaan enkel: naam, telefoon/gsm, *niet bellen*, type, status, bron, eigenaar en het adres. De kaart toont ze bij overeenkomst op:
+
+- **zelfde adres**: straat (genormaliseerd: str. → straat, stwg → steenweg …), huisnummer, bus en postcode;
+- **zelfde gebouw**: zelfde straat, nummer en postcode, andere of geen bus;
+- **vermoedelijk**: zelfde postcode, huisnummer zonder letter en laatste woord van de straat (vangt "Lod. van Veltemstraat" = "Lodewijk van Veltemstraat" en 51 / 51A).
+
+Bij *niet bellen* toont Scout geen nummer. De gegevens zijn alleen zichtbaar op de kaarten van de eigen panden en worden bij elke import volledig vervangen: wat uit ERAforce verdwijnt, verdwijnt ook uit Scout.
+
 ## Inkoopbonus
 
 Wordt een deur die een collega bezocht later een opdracht (verkoop of verhuur) in ERAforce, dan krijgt die collega extra punten.

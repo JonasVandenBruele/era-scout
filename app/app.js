@@ -1713,6 +1713,23 @@ function portalName(url) {
   try { return PORTALS[new URL(url).hostname.replace(/^www\./, "")] || "Zoekertje"; } catch { return "Immoweb"; }
 }
 
+const MATCH_LABEL = { adres: "zelfde adres", gebouw: "zelfde gebouw", vermoedelijk: "vermoedelijk zelfde adres" };
+const telHref = (n) => `tel:${String(n).replace(/[^0-9+]/g, "")}`;
+function contactsBlock(c) {
+  const list = c.contacts || [];
+  if (!list.length) return "";
+  return `<div class="contacts">
+    <div class="label" style="margin-bottom:6px">Al bekend in ERAforce (${list.length})</div>
+    ${list.map((p) => `<div class="contact">
+      <div class="grow"><b>${esc(p.name || "Naam onbekend")}</b>
+        <div class="tiny muted">${esc([p.kind, p.status, p.lead_source].filter(Boolean).join(" · "))}${p.owner ? ` · ${esc(p.owner)}` : ""}${p.created ? ` · ${fmtDate(p.created)}` : ""}</div>
+        <div class="tiny ${p.match === "vermoedelijk" ? "warn-t" : "faint"}">${MATCH_LABEL[p.match]}${p.match !== "adres" ? `: ${esc(p.address)}` : ""}${p.other_address ? " (ander adres van de prospect)" : ""}</div></div>
+      <div class="contact-tel">${p.do_not_call ? '<span class="pill red">Niet bellen</span>'
+        : [p.mobile, p.phone].filter(Boolean).filter((n, i, a) => a.indexOf(n) === i).map((n) => `<a class="btn sm ghost" href="${telHref(n)}">${icon("phone", "sm")} ${esc(n)}</a>`).join("")}</div>
+    </div>`).join("")}
+  </div>`;
+}
+
 function agencyLine(c) {
   const lbl = (c.agency || "").toLowerCase();
   const who = c.agency_name || (lbl.includes("particulier") ? "Particulier" : lbl.includes("notaris") ? "Notaris" : null);
@@ -1752,6 +1769,7 @@ function propertyCard(c, prefs) {
       ${agencyLine(c)}
       ${c.manual && c.manual.id ? `<div class="tiny muted chk-r">Handmatig: ${c.manual.status === "active" ? "nog te koop" : "niet meer te koop"} (${fmtDate(c.manual.observed_on)}, ${esc(c.manual.origin)})</div>` : ""}
     </div>
+    ${contactsBlock(c)}
     <div class="row spread" style="margin-top:8px"><span class="pill ${c.decision === "eligible" ? "ok" : c.decision === "not_for_sale" ? "red" : "warn"}">${dec}</span>
       <span class="tiny muted" style="text-align:right">${esc(c.decision_reason || "")}</span></div>
     <div class="row wrap" style="gap:6px;margin-top:10px">

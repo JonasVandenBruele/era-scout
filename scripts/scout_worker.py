@@ -186,6 +186,52 @@ def read_mandates(path, years=3):
     return [m for m in out if m and m["street"] and m["number"]]
 
 
+CONTACT_SQL = """
+select l."Id", l."FirstName", l."LastName", l."Phone", l."MobilePhone", l."DoNotCall", l."Status", l."LeadSource",
+       l."OwnerId", l."CreatedDate", l."RecordTypeId",
+       l."ERA_Straat__c", l."ERA_Huisnummer__c", l."ERA_Bus__c", l."ERA_Postcode__c", l."ERA_Gemeente__c",
+       l."ERA_Andere_Straat__c", l."ERA_Ander_Huisnummer__c", l."ERA_Andere_Bus__c", l."ERA_Andere_Postcode__c", l."ERA_Andere_Gemeente__c"
+from "Lead" l where l."_verwijderd" = 0
+"""
+
+
+def lead_to_contacts(lead, users, groups, rts):
+    """Eén prospect → 0, 1 of 2 adresregels (hoofdadres en 'ander adres') met naam en telefoon.
+    Een Marketpulse-naam als "straat nr, postcode gemeente, kantoor" is geen persoon: dan geen naam."""
+    first, last = (lead.get("FirstName") or "").strip(), (lead.get("LastName") or "").strip()
+    if not first and (agency_name({**lead, "ERA_Bron_Bemiddelaar__c": "Concurrent Makelaar"}) or "," in last):
+        last = ""
+    name = " ".join(x for x in (first, last) if x) or None
+    phone, mobile = (lead.get("Phone") or "").strip() or None, (lead.get("MobilePhone") or "").strip() or None
+    if not (name or phone or mobile):
+        return []
+    owner = lead.get("OwnerId") or ""
+    base = {"external_id": lead["Id"], "kind": rts.get(lead.get("RecordTypeId")), "name": name, "phone": phone, "mobile": mobile,
+            "do_not_call": bool(lead.get("DoNotCall")), "status": lead.get("Status"), "lead_source": lead.get("LeadSource"),
+            "owner_label": groups.get(owner) if owner.startswith("00G") else (users.get(owner) or {}).get("Name"),
+            "created_in_source": lead.get("CreatedDate")}
+    out = []
+    for kind, f in (("main", ("ERA_Straat__c", "ERA_Huisnummer__c", "ERA_Bus__c", "ERA_Postcode__c", "ERA_Gemeente__c")),
+                    ("other", ("ERA_Andere_Straat__c", "ERA_Ander_Huisnummer__c", "ERA_Andere_Bus__c", "ERA_Andere_Postcode__c",
+                               "ERA_Andere_Gemeente__c"))):
+        street, number = (lead.get(f[0]) or "").strip(), (lead.get(f[1]) or "").strip()
+        if street and number:
+            out.append({**base, "address_type": kind, "street": street, "number": number, "box": lead.get(f[2]),
+                        "postcode": lead.get(f[3]), "city": lead.get(f[4])})
+    return out
+
+
+def read_contacts(path):
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    users = {r["Id"]: dict(r) for r in con.execute('select "Id", "Name" from "User"')}
+    groups = {r["Id"]: r["Name"] for r in con.execute('select "Id", "Name" from "Group"')}
+    rts = {r["Id"]: r["Name"] for r in con.execute('select "Id", "Name" from "RecordType"')}
+    rows = [dict(r) for r in con.execute(CONTACT_SQL)]
+    con.close()
+    return [c for r in rows for c in lead_to_contacts(r, users, groups, rts)]
+
+
 def read_mirror(path):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -564,10 +610,16 @@ def cmd_import(path):
         r = call(con, "select worker.import_mandates(%s, %s)", team, mandates[i:i + 2000])
         m["mandates"] += r["mandates"]
         m["awarded"] += r["awarded"]
-    log.info("import: %d records, %s niet meer in de bron, %s panden; %d opdrachten, %d inkoopbonussen",
-             n, res["gone"], res["properties"], m["mandates"], m["awarded"])
+    started = call(con, "select now()")
+    contacts = read_contacts(path)
+    nc = 0
+    for i in range(0, len(contacts), 2000):
+        nc += call(con, "select worker.import_contacts(%s, %s)", team, contacts[i:i + 2000])
+    call(con, "select worker.finish_contacts(%s, %s)", team, started)
+    log.info("import: %d records, %s niet meer in de bron, %s panden; %d opdrachten, %d inkoopbonussen; %d prospectadressen",
+             n, res["gone"], res["properties"], m["mandates"], m["awarded"], nc)
     print(f"Import: {n} records · {res['properties']} unieke panden · {res['gone']} niet meer in de bron · "
-          f"{m['mandates']} opdrachten · {m['awarded']} nieuwe inkoopbonussen")
+          f"{m['mandates']} opdrachten · {m['awarded']} nieuwe inkoopbonussen · {nc} prospectadressen")
 
 
 def check_one(fetch, db, run, item, cache):

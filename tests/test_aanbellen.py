@@ -231,6 +231,32 @@ class AanbellenTest(AanbellenBase):
         self.sql("delete from public.listing_checks where run_id = %s", run)
         self.sql("delete from public.check_runs where id = %s", run)
 
+    def test_contacts_on_address(self):
+        a, b = self.prop("00Q000000000A2"), self.prop("00Q000000000B1")   # Teststraat 1 ; Teststraat 3 bus 1
+        rows = [
+            {"external_id": "00QX1", "address_type": "main", "kind": "Verkoper", "name": "Eigenaar Een", "mobile": "0470 11 22 33",
+             "street": "Teststr.", "number": "1", "postcode": "1800"},                                  # zelfde adres (afkorting)
+            {"external_id": "00QX2", "address_type": "other", "kind": "Koper", "name": "Bewoner Twee", "phone": "02 123 45 67",
+             "do_not_call": True, "street": "Teststraat", "number": "3", "box": "2", "postcode": "1800"},  # zelfde gebouw, niet bellen
+            {"external_id": "00QX3", "address_type": "main", "kind": "Verkoper", "name": "Derde", "phone": "015 00 00 00",
+             "street": "T. Teststraat", "number": "3A", "postcode": "1800"},                            # vermoedelijk (losse sleutel)
+            {"external_id": "00QX4", "address_type": "main", "kind": "Verkoper", "name": "Ander Pand", "phone": "1",
+             "street": "Teststraat", "number": "4", "postcode": "1800"},                                # ander huisnummer
+        ]
+        self.assertEqual(self.worker("select worker.import_contacts(%s, %s)", self.team, Jsonb(rows)), 4)
+        ca = self.cards()[a]["contacts"]
+        self.assertEqual([(x["name"], x["match"]) for x in ca], [("Eigenaar Een", "adres")])
+        cb = {x["name"]: x for x in self.cards()[b]["contacts"]}
+        self.assertEqual(cb["Bewoner Twee"]["match"], "gebouw")
+        self.assertIsNone(cb["Bewoner Twee"]["phone"])                                              # niet bellen: geen nummer
+        self.assertTrue(cb["Bewoner Twee"]["do_not_call"])
+        self.assertEqual(cb["Derde"]["match"], "vermoedelijk")
+        self.assertNotIn("Ander Pand", cb)
+        self.assertNotIn(a, self.cards(self.lars))                                                  # andermans pand: niets
+        started = self.worker("select now() + interval '1 second'")
+        self.assertEqual(self.worker("select worker.finish_contacts(%s, %s)", self.team, started), 4)  # niet meer in de bron: weg
+        self.assertEqual(self.cards()[a]["contacts"], [])
+
     def test_access(self):
         with psycopg.connect(self.url) as con:
             con.execute("set local role authenticated")

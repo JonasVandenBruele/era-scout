@@ -98,6 +98,18 @@ class WorkerTest(unittest.TestCase):
         other = {**page, "text": "Huis Lodewijk van Veltemstraat 7, 3020 Veltem-Beisem. Te koop"}
         self.assertIsNone(ms.match_page(other, item, None))                       # ander huisnummer: geen match
 
+    def test_lead_contacts(self):
+        lead = {"Id": "00QA", "FirstName": "Jan", "LastName": "Peeters", "MobilePhone": "0470", "DoNotCall": 0, "RecordTypeId": "012V",
+                "ERA_Straat__c": "Kerkstraat", "ERA_Huisnummer__c": "12", "ERA_Postcode__c": "1800",
+                "ERA_Andere_Straat__c": "Molenstraat", "ERA_Ander_Huisnummer__c": "4", "ERA_Andere_Postcode__c": "1800"}
+        rows = w.lead_to_contacts(lead, {}, {}, {"012V": "Verkoper"})
+        self.assertEqual([(r["address_type"], r["street"], r["name"], r["kind"]) for r in rows],
+                         [("main", "Kerkstraat", "Jan Peeters", "Verkoper"), ("other", "Molenstraat", "Jan Peeters", "Verkoper")])
+        mp = {"Id": "00QB", "FirstName": None, "LastName": "Kerkstraat 12, 1800 Vilvoorde, Immo Nuvo",
+              "ERA_Straat__c": "Kerkstraat", "ERA_Huisnummer__c": "12"}
+        self.assertEqual(w.lead_to_contacts(mp, {}, {}, {}), [])                    # Marketpulse-naam zonder nummer: niets
+        self.assertIsNone(w.lead_to_contacts({**mp, "Phone": "02"}, {}, {}, {})[0]["name"])  # wel nummer, geen valse naam
+
     def test_agency_name(self):
         base = {"ERA_Bron_Bemiddelaar__c": "Marketpulse / Concurrent Makelaar", "FirstName": None,
                 "LastName": "Kerkstraat 12, 1800 Vilvoorde, Immo Nuvo"}
