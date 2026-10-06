@@ -277,6 +277,7 @@ input.chip { color-scheme: inherit; }
 .followup-toggle[aria-pressed="true"] { border-style: solid; border-color: var(--gold); background: color-mix(in srgb, var(--gold) 8%, transparent); }
 .followup-toggle .ic { color: var(--gold); }
 .save-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 14px 16px calc(12px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--bg) 35%); }
+.save-bar.over-nav { bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); padding-bottom: 10px; z-index: 31; }
 .save-bar > div { max-width: 540px; margin: 0 auto; }
 .time-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .time-grid .chip { justify-content: center; padding: 0 4px; }

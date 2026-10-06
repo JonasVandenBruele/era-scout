@@ -1780,7 +1780,7 @@ function paintAanbellen() {
     ${list.length > AB.shown ? `<button class="btn outline block" id="more">Toon meer (${list.length - AB.shown} resterend)</button>` : ""}
     ${groups.gone.length ? `<button class="btn ghost block" data-abtab="gone">${groups.gone.length} niet meer te koop bekijken</button>` : ""}
   </div>
-  ${nSel ? `<div class="save-bar"><div><a class="btn primary xl block" href="#/aanbellen/route">${icon("nav")} ${nSel} gekozen · Bezoekvolgorde</a></div></div>` : ""}`;
+  ${nSel ? `<div style="height:84px"></div><div class="save-bar over-nav"><div><a class="btn primary xl block" href="#/aanbellen/route">${icon("nav")} Start prospectieronde · ${plural(nSel, "pand", "panden")}</a></div></div>` : ""}`;
 
   on("[data-href]", "click", (e) => go(e.currentTarget.dataset.href));
   on("[data-abtab]", "click", (e) => { AB.tab = e.currentTarget.dataset.abtab; AB.shown = 25; paintAanbellen(); window.scrollTo(0, 0); });
@@ -1898,7 +1898,11 @@ async function viewRoute() {
   const saved = (await rpc("scout_route")).plan;
   const sel = AB.data.cards.filter((c) => c.selected);
   RT.plan = saved && saved.order ? { ...saved, order: saved.order.filter((id) => sel.some((c) => c.id === id)) } : null;
+  // Nieuwe of gewijzigde selectie: meteen de efficiëntste volgorde berekenen.
+  const routable = sel.filter((c) => c.lat != null && c.geo_quality !== "unsure").map((c) => c.id);
+  const stale = !RT.plan || routable.some((id) => !RT.plan.order.includes(id));
   paintRoute(sel);
+  if (stale && routable.length) $("#calc")?.click();
 }
 
 function paintRoute(sel) {
@@ -1910,7 +1914,7 @@ function paintRoute(sel) {
   const done = new Set(plan?.done || []);
   const next = ordered.find((c) => !done.has(c.id));
   const tot = plan ? legTotals(plan) : null;
-  app.innerHTML = `${backBar("#/aanbellen", "Bezoekvolgorde")}
+  app.innerHTML = `${backBar("#/aanbellen", "Prospectieronde")}
   <div class="stack" style="padding-bottom:20px">
     ${!sel.length ? `<div class="panel" style="text-align:center"><p class="muted" style="margin:0">Nog geen panden gekozen.</p><a class="btn outline block" href="#/aanbellen" style="margin-top:12px">Panden kiezen</a></div>` : `
     <section class="panel stack">
