@@ -34,6 +34,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import urllib.robotparser
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import makelaarsites  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -463,43 +466,13 @@ def check_agency(fetch, item, iw, cache):
     base = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(website))
     ref = det.get("external_reference")
     try:
-        urls = sitemap_urls(fetch, base, cache)
+        res = makelaarsites.find_on_site(fetch, base, item, ref, lambda: sitemap_urls(fetch, base, cache),
+                                         extra_ids=[det.get("immoweb_id")] if det.get("immoweb_id") else [])
     except Exception as e:  # noqa: BLE001
         return {"status": "failed", "reason": "Makelaarswebsite niet bereikbaar", "error": type(e).__name__, "url": base,
                 "details": {"agency_website": base}}
-    keys = []
-    if ref:
-        keys.append(re.sub(r"[^a-z0-9]", "", ref.lower()))
-    if item.get("street") and item.get("number"):
-        keys.append(re.sub(r"[^a-z0-9]+", "-", norm(item["street"])) + "-" + norm(item["number"]))
-    if det.get("immoweb_id"):
-        keys.append(str(det["immoweb_id"]))
-    cands = []
-    for u in urls:
-        flat = re.sub(r"[^a-z0-9-]", "", u.lower())
-        if any(k and (k in flat or k.replace("-", "") in flat.replace("-", "")) for k in keys):
-            cands.append(u)
-    if not urls:
-        return {"status": "unknown", "reason": "Makelaarswebsite heeft geen bruikbare sitemap; pand niet automatisch te vinden",
-                "url": base, "details": {"agency_website": base}}
-    for u in cands[:3]:
-        try:
-            code, eff, html = fetch.get(u)
-        except Exception:  # noqa: BLE001
-            continue
-        if code in (404, 410):
-            continue
-        if looks_blocked(code, html):
-            return {"status": "failed", "reason": "Makelaarswebsite blokkeert de controle", "url": u, "http": code,
-                    "details": {"agency_website": base}}
-        title = re.sub(r"\s+", " ", (re.search(r"(?is)<title>(.*?)</title>", html) or [None, ""])[1])
-        res = agency_status(page_text(html), item, ref, title)
-        if res:
-            return {"status": res[0], "reason": res[1], "url": eff, "http": code, "evidence": "referentie" if ref else "adres",
-                    "details": {"agency_website": base}}
-    return {"status": "unknown" if not cands else "not_found",
-            "reason": "Pand niet teruggevonden op de makelaarswebsite" if not cands else "Pagina van dit pand niet meer gevonden",
-            "url": base, "details": {"agency_website": base}}
+    res["details"] = {"agency_website": base}
+    return res
 
 
 # ============================================================ geocoderen ==

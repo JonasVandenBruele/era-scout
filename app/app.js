@@ -706,6 +706,7 @@ async function viewRegister(_m, query) {
     reg = newReg();
     const lat = parseFloat(query.get("lat")), lon = parseFloat(query.get("lon"));
     reg.prospect = { address: query.get("adres"), ...(Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : {}) };
+    if (query.get("stop")) reg.stop = +query.get("stop");   // bezoek vanuit de prospectieronde (Aanbellen)
   } else if (query.get("p")) {
     reg = newReg();
     reg.prospect = S.prospects.find((p) => p.id === +query.get("p")) || { id: +query.get("p"), address: "…" };
@@ -1113,6 +1114,8 @@ function sparks(n = 22) {
 }
 
 function showReward(data, opt) {
+  const stop = !opt.edit && reg && reg.stop;
+  if (stop) markStopDone(stop);
   const v = data.visit;
   const t = data.today;
   const pct = Math.min(1, t.doors / Math.max(1, t.goal));
@@ -1144,12 +1147,15 @@ function showReward(data, opt) {
       ${data.new_badges.map((b) => `<div class="unlock"><span class="hex">${icon(b.icon)}</span><div><div class="label">Badge vrijgespeeld</div><b>${esc(b.name)}</b><div class="small muted">${esc(b.desc)}</div></div></div>`).join("")}
       ${data.completed_challenges.map((c) => `<div class="unlock"><span class="hex" style="--t:var(--diamond)">${icon("target")}</span><div><div class="label">Uitdaging voltooid</div><b>${esc(c.title)}</b></div></div>`).join("")}
       ${opt.edit ? `<button class="btn primary xl block" id="r-done">Klaar</button>`
+        : stop ? `<button class="btn primary xl block" id="r-stop">${icon("nav")} Naar de volgende stop</button>
+           <button class="btn ghost block" id="r-done">Naar mijn dag</button>`
         : `<button class="btn primary xl block" id="r-next">Volgende deur ${icon("chev")}</button>
            <button class="btn ghost block" id="r-done">${data.round ? "Terug naar ronde" : "Naar mijn dag"}</button>`}
     </div></div>`;
   requestAnimationFrame(() => requestAnimationFrame(() => { $("#rbar").style.width = `${pct * 100}%`; }));
   countUp($("#plus"), pts);
   on("#r-next", "click", () => { closeLayer(); reg = newReg(); viewRegister(null, new URLSearchParams()); }, layer);
+  on("#r-stop", "click", () => { closeLayer(); reg = newReg(); go("#/aanbellen/route"); }, layer);
   on("#r-done", "click", () => { closeLayer(); if (opt.edit) history.back(); else go(data.round ? "#/ronde" : "#/"); }, layer);
 }
 
@@ -1165,13 +1171,16 @@ function countUp(el, to) {
 }
 
 function showQueued(address, result) {
+  const stop = reg && reg.stop;
+  if (stop) markStopDone(stop);
   layer.innerHTML = `<div class="overlay" role="dialog" aria-modal="true"><div class="sheet stack">
     <div class="burst"><div class="tier" style="color:var(--muted)">Offline</div><div class="plus zero">${icon("cloudoff", "lg")}</div>
       <div class="what">Bewaard op je toestel</div><div class="small muted">${esc(address)} · ${esc(RES[result].label)}</div></div>
     <div class="notice warn">${icon("clock")}<span>Geen verbinding. Het bezoek wordt automatisch verstuurd zodra je weer online bent. Je punten volgen dan.</span></div>
-    <button class="btn primary xl block" id="r-next">Volgende deur ${icon("chev")}</button>
+    ${stop ? `<button class="btn primary xl block" id="r-stop">${icon("nav")} Naar de volgende stop</button>` : `<button class="btn primary xl block" id="r-next">Volgende deur ${icon("chev")}</button>`}
     <button class="btn ghost block" id="r-done">Naar mijn dag</button></div></div>`;
   on("#r-next", "click", () => { closeLayer(); reg = newReg(); viewRegister(null, new URLSearchParams()); }, layer);
+  on("#r-stop", "click", () => { closeLayer(); reg = newReg(); go("#/aanbellen/route"); }, layer);
   on("#r-done", "click", () => { closeLayer(); go("#/"); }, layer);
 }
 
@@ -1893,7 +1902,21 @@ function legTotals(plan) {
   return { dur, dist, legs };
 }
 
+// Stop afvinken in de bewaarde route (lokaal meteen, op de server wanneer er verbinding is).
+let STOP_SAVE = Promise.resolve();
+function markStopDone(id) {
+  if (RT.plan) RT.plan.done = [...new Set([...(RT.plan.done || []), id])];
+  const local = RT.plan;
+  STOP_SAVE = (local ? Promise.resolve({ plan: local }) : rpc("scout_route")).then(({ plan }) => {
+    if (!plan || !plan.order) return;
+    plan.done = [...new Set([...(plan.done || []), id])];
+    RT.plan = plan;
+    return rpc("scout_save_route", { p_plan: plan });
+  }).catch(() => {});
+}
+
 async function viewRoute() {
+  await STOP_SAVE;
   if (!AB.data) await loadAanbellen();
   const saved = (await rpc("scout_route")).plan;
   const sel = AB.data.cards.filter((c) => c.selected);
@@ -1935,7 +1958,7 @@ function paintRoute(sel) {
       <span class="stop-n">${i + 1}</span>
       <div class="grow"><div class="title">${esc(c.address)}</div><div class="sub">${esc(c.city || "")}${tot && tot.legs[c.id] != null ? ` · +${Math.round(tot.legs[c.id] / 60)} min` : ""}${c.decision !== "eligible" ? ` · <span style="color:var(--danger)">${esc(DECISION_LABEL[c.decision])}</span>` : ""}</div>
         <div class="row wrap" style="gap:6px;margin-top:8px">${wazeBtn(c)}
-          <a class="btn sm ghost" href="#/registreer?adres=${encodeURIComponent(fullAddress(c))}${c.lat != null ? `&lat=${c.lat}&lon=${c.lon}` : ""}">${icon("plus", "sm")} Registreer</a>
+          <a class="btn sm ghost" href="#/registreer?adres=${encodeURIComponent(fullAddress(c))}${c.lat != null ? `&lat=${c.lat}&lon=${c.lon}` : ""}&stop=${c.id}">${icon("plus", "sm")} Registreer</a>
           <button class="btn sm ghost" data-done="${c.id}">${done.has(c.id) ? "Ongedaan" : icon("check", "sm") + " Gedaan"}</button></div></div>
       <div class="stop-ctl"><button class="icon-btn" data-up="${c.id}" aria-label="Hoger" ${i === 0 ? "disabled" : ""}>${icon("up", "sm")}</button>
         <button class="icon-btn" data-down="${c.id}" aria-label="Lager" ${i === ordered.length - 1 ? "disabled" : ""} style="transform:rotate(180deg)">${icon("up", "sm")}</button>

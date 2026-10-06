@@ -2,7 +2,10 @@
 import json
 import os
 import sys
+import tempfile
 import unittest
+
+os.environ["SCOUT_SITES_CACHE"] = tempfile.mkdtemp()  # nooit de echte dagcache van de Mac gebruiken
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 import scout_worker as w  # noqa: E402
