@@ -199,7 +199,7 @@ Bij elke import leest de Mac alle prospecten (verkoper, verhuurder, koper) uit E
 - **zelfde gebouw**: zelfde straat, nummer en postcode, andere of geen bus;
 - **vermoedelijk**: zelfde postcode, huisnummer zonder letter en laatste woord van de straat (vangt "Lod. van Veltemstraat" = "Lodewijk van Veltemstraat" en 51 / 51A).
 
-Bij *niet bellen* toont Scout geen nummer. De gegevens zijn alleen zichtbaar op de kaarten van de eigen panden en worden bij elke import volledig vervangen: wat uit ERAforce verdwijnt, verdwijnt ook uit Scout.
+Bij *niet bellen* in ERAforce toont Scout het nummer wél (keuze van het kantoor), met een rode waarschuwing. De gegevens zijn alleen zichtbaar op de kaarten van de eigen panden en worden bij elke import volledig vervangen: wat uit ERAforce verdwijnt, verdwijnt ook uit Scout.
 
 ## Inkoopbonus
 

@@ -1724,8 +1724,8 @@ function contactsBlock(c) {
       <div class="grow"><b>${esc(p.name || "Naam onbekend")}</b>
         <div class="tiny muted">${esc([p.kind, p.status, p.lead_source].filter(Boolean).join(" · "))}${p.owner ? ` · ${esc(p.owner)}` : ""}${p.created ? ` · ${fmtDate(p.created)}` : ""}</div>
         <div class="tiny ${p.match === "vermoedelijk" ? "warn-t" : "faint"}">${MATCH_LABEL[p.match]}${p.match !== "adres" ? `: ${esc(p.address)}` : ""}${p.other_address ? " (ander adres van de prospect)" : ""}</div></div>
-      <div class="contact-tel">${p.do_not_call ? '<span class="pill red">Niet bellen</span>'
-        : [p.mobile, p.phone].filter(Boolean).filter((n, i, a) => a.indexOf(n) === i).map((n) => `<a class="btn sm ghost" href="${telHref(n)}">${icon("phone", "sm")} ${esc(n)}</a>`).join("")}</div>
+      <div class="contact-tel">${p.do_not_call ? '<span class="pill red" title="In ERAforce staat ‘niet bellen’ aangevinkt">Niet bellen in ERAforce</span>' : ""}${
+        [p.mobile, p.phone].filter(Boolean).filter((n, i, a) => a.indexOf(n) === i).map((n) => `<a class="btn sm ghost" href="${telHref(n)}">${icon("phone", "sm")} ${esc(n)}</a>`).join("")}</div>
     </div>`).join("")}
   </div>`;
 }

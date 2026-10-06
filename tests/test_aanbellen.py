@@ -248,7 +248,7 @@ class AanbellenTest(AanbellenBase):
         self.assertEqual([(x["name"], x["match"]) for x in ca], [("Eigenaar Een", "adres")])
         cb = {x["name"]: x for x in self.cards()[b]["contacts"]}
         self.assertEqual(cb["Bewoner Twee"]["match"], "gebouw")
-        self.assertIsNone(cb["Bewoner Twee"]["phone"])                                              # niet bellen: geen nummer
+        self.assertEqual(cb["Bewoner Twee"]["phone"], "02 123 45 67")                              # nummer wel tonen (keuze kantoor)
         self.assertTrue(cb["Bewoner Twee"]["do_not_call"])
         self.assertEqual(cb["Derde"]["match"], "vermoedelijk")
         self.assertNotIn("Ander Pand", cb)
