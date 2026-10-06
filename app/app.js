@@ -1653,6 +1653,28 @@ const CHECK_LABEL = {
 };
 const DECISION_LABEL = { eligible: "Geschikt", needs_check: "Controle nodig", not_for_sale: "Niet meer te koop" };
 const AB = { data: null, tab: "eligible", shown: 25, busy: false };
+// Plaatsfilter ("vandaag enkel Sterrebeek"): geldt voor de dag zelf, morgen weer alles.
+const PLACES_KEY = "scout-plaatsen";
+// Per postcode: ERAforce noteert vaak de hoofdgemeente (1933 "Zaventem" = Sterrebeek), dus filteren op postcode.
+const POSTCODE_NAMES = {
+  1800: "Vilvoorde · Peutie", 1820: "Steenokkerzeel · Melsbroek · Perk", 1830: "Machelen", 1831: "Diegem", 1850: "Grimbergen",
+  1851: "Humbeek", 1852: "Beigem", 1853: "Strombeek-Bever", 1860: "Meise", 1861: "Wolvertem", 1880: "Kapelle-op-den-Bos",
+  1910: "Kampenhout", 1930: "Zaventem · Nossegem", 1932: "Sint-Stevens-Woluwe", 1933: "Sterrebeek", 1950: "Kraainem",
+  1970: "Wezembeek-Oppem", 3020: "Herent · Veltem-Beisem · Winksele", 3070: "Kortenberg", 3071: "Erps-Kwerps",
+  3078: "Everberg · Meerbeek",
+};
+const placeOf = (c) => c.postcode || "onbekend";
+const placeLabel = (pc, cards) => {
+  if (POSTCODE_NAMES[pc]) return `${pc} ${POSTCODE_NAMES[pc]}`;
+  const n = {}; cards.filter((c) => placeOf(c) === pc).forEach((c) => { n[c.city] = (n[c.city] || 0) + 1; });
+  const city = Object.keys(n).sort((a, b) => n[b] - n[a])[0] || "";
+  return `${pc} ${city}`.trim();
+};
+function todayPlaces() {
+  const v = store.get(PLACES_KEY, null);
+  return v && v.day === ymd(new Date()) ? new Set(v.places) : new Set();
+}
+function setTodayPlaces(set) { store.set(PLACES_KEY, { day: ymd(new Date()), places: [...set] }); }
 const fmtStamp = (s) => { if (!s) return "–"; const d = new Date(s); return `${d.getDate()}/${d.getMonth() + 1} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const euro = (n) => n == null ? "" : `€ ${Math.round(n).toLocaleString("nl-BE")}`;
 const fullAddress = (c) => `${c.address}, ${c.postcode || ""} ${c.city || ""}`.replace(/\s+/g, " ").trim();
@@ -1758,8 +1780,13 @@ async function viewAanbellen() {
 
 function paintAanbellen() {
   const d = AB.data, pr = d.prefs, src = d.source;
+  const places = todayPlaces();
+  const inPlace = (c) => !places.size || places.has(placeOf(c));
   const cards = d.cards;
-  const by = (k) => cards.filter((c) => c.decision === k);
+  const by = (k) => cards.filter((c) => c.decision === k && inPlace(c));
+  const placeCount = {};
+  cards.filter((c) => c.decision !== "not_for_sale").forEach((c) => { placeCount[placeOf(c)] = (placeCount[placeOf(c)] || 0) + 1; });
+  const placeList = Object.keys(placeCount).sort();
   const groups = { eligible: by("eligible"), check: by("needs_check"), selected: cards.filter((c) => c.selected), gone: by("not_for_sale") };
   const list = groups[AB.tab] || [];
   const nSel = groups.selected.length;
@@ -1779,6 +1806,11 @@ function paintAanbellen() {
       <div class="seg" role="group" aria-label="Berekening"><button data-basis="current" aria-pressed="${pr.basis === "current"}">Huidige aanbieding</button><button data-basis="first" aria-pressed="${pr.basis === "first"}">Eerste aanbieding</button></div>
       ${pr.basis === "first" ? '<p class="hint" style="margin:0">Tijd sinds de eerste bekende aanbieding. Het pand kan tussendoor offline geweest zijn: dit is niet hetzelfde als “aantal dagen actief te koop”.</p>' : ""}
     </section>
+    ${placeList.length > 1 ? `<section class="panel tight stack">
+      <div class="row spread"><span class="label">Waar ga je vandaag?</span>${places.size ? '<button class="btn sm ghost" data-place="">Alles tonen</button>' : ""}</div>
+      <div class="chips">${placeList.map((p) => `<button class="chip" data-place="${esc(p)}" aria-pressed="${places.has(p)}">${esc(placeLabel(p, cards))} <span class="num faint">${placeCount[p]}</span></button>`).join("")}</div>
+      ${places.size ? '<p class="hint" style="margin:0">Alleen voor vandaag. Gekozen panden blijven altijd zichtbaar onder ‘Gekozen’.</p>' : ""}
+    </section>` : ""}
     <div class="row wrap tiny muted" style="gap:10px">
       <span>Import: ${fmtStamp(src.last_import)}</span>
       <span>Laatste controle: ${src.last_run ? fmtStamp(src.last_run.finished_at) : "nog geen"}</span>
@@ -1797,6 +1829,11 @@ function paintAanbellen() {
   ${nSel ? `<div style="height:84px"></div><div class="save-bar over-nav"><div><a class="btn primary xl block" href="#/aanbellen/route">${icon("nav")} Start prospectieronde · ${plural(nSel, "pand", "panden")}</a></div></div>` : ""}`;
 
   on("[data-href]", "click", (e) => go(e.currentTarget.dataset.href));
+  on("[data-place]", "click", (e) => {
+    const p = e.currentTarget.dataset.place, set = todayPlaces();
+    if (!p) set.clear(); else if (set.has(p)) set.delete(p); else set.add(p);
+    setTodayPlaces(set); AB.shown = 25; paintAanbellen();
+  });
   on("[data-abtab]", "click", (e) => { AB.tab = e.currentTarget.dataset.abtab; AB.shown = 25; paintAanbellen(); window.scrollTo(0, 0); });
   on("#more", "click", () => { AB.shown += 25; paintAanbellen(); });
   const setPrefs = async (p) => { await loadAanbellen(p); AB.shown = 25; paintAanbellen(); };
@@ -1817,7 +1854,15 @@ function paintAanbellen() {
     catch (err) { toast(err.message); }
   });
   on("#recheck-all", "click", async () => {
-    try { const r = await rpc("scout_request_check", { p_property: null }); toast(`${r.requested} controles aangevraagd`); await setPrefs({}); }
+    try {
+      if (places.size) {          // enkel de panden in de gekozen gemeenten
+        for (const c of list) await rpc("scout_request_check", { p_property: c.id });
+        toast(`${list.length} controles aangevraagd`);
+      } else {
+        const r = await rpc("scout_request_check", { p_property: null }); toast(`${r.requested} controles aangevraagd`);
+      }
+      await setPrefs({});
+    }
     catch (err) { toast(err.message); }
   });
   on("[data-confirm]", "click", (e) => confirmSheet(+e.currentTarget.dataset.confirm));
