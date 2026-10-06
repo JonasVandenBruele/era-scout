@@ -122,6 +122,47 @@ def lead_to_record(lead, users, groups):
     }
 
 
+def opportunity_to_mandate(opp, obj, users, rt_names):
+    """Eén ERAforce-opdracht (Opportunity) + het gekoppelde pand (ERA_Object__c) → opdracht voor de inkoopbonus.
+    Datum: ondertekening van de opdracht; anders de start van de opdracht. De aanmaakdatum gebruiken we niet."""
+    for field in ("ERA_Datum_Ondertekening_Mandaat__c", "ERA_Start_opdracht__c"):
+        if opp.get(field):
+            signed, basis = iso_date(opp[field]), field
+            break
+    else:
+        return None
+    obj = obj or {}
+    return {
+        "external_id": opp["Id"], "kind": rt_names.get(opp.get("RecordTypeId")), "stage": opp.get("StageName"),
+        "signed_on": signed, "date_basis": basis, "owner_label": (users.get(opp.get("OwnerId")) or {}).get("Name"),
+        "street": obj.get("ERA_Straat__c"), "number": obj.get("ERA_Huisnummer__c"), "box": obj.get("ERA_Bus__c"),
+        "postcode": obj.get("ERA_Postcode__c"), "city": obj.get("ERA_Gemeente__c"),
+        "lat": obj.get("ERA_GEO_Code__Latitude__s"), "lon": obj.get("ERA_GEO_Code__Longitude__s"),
+    }
+
+
+MANDATE_SQL = """
+select o."Id", o."OwnerId", o."RecordTypeId", o."StageName", o."ERA_Datum_Ondertekening_Mandaat__c",
+       o."ERA_Start_opdracht__c", o."ERA_Object__c",
+       b."ERA_Straat__c", b."ERA_Huisnummer__c", b."ERA_Bus__c", b."ERA_Postcode__c", b."ERA_Gemeente__c",
+       b."ERA_GEO_Code__Latitude__s", b."ERA_GEO_Code__Longitude__s"
+from "Opportunity" o left join "ERA_Object__c" b on b."Id" = o."ERA_Object__c" and b."_verwijderd" = 0
+where o."_verwijderd" = 0 and coalesce(o."ERA_Datum_Ondertekening_Mandaat__c", o."ERA_Start_opdracht__c") >= ?
+"""
+
+
+def read_mandates(path, years=3):
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    since = (dt.date.today() - dt.timedelta(days=365 * years)).isoformat()
+    users = {r["Id"]: dict(r) for r in con.execute('select "Id", "Name" from "User"')}
+    rts = {r["Id"]: r["Name"] for r in con.execute('select "Id", "Name" from "RecordType"')}
+    rows = [dict(r) for r in con.execute(MANDATE_SQL, (since,))]
+    con.close()
+    out = [opportunity_to_mandate(r, r, users, rts) for r in rows]
+    return [m for m in out if m and m["street"] and m["number"]]
+
+
 def read_mirror(path):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -469,8 +510,16 @@ def cmd_import(path):
     for i in range(0, len(records), 1000):
         n += call(con, "select worker.import_records(%s, %s, %s)", team, SOURCE, records[i:i + 1000])["records"]
     res = call(con, "select worker.finish_import(%s, %s, %s)", team, SOURCE, [r["external_id"] for r in records])
-    log.info("import: %d records, %s niet meer in de bron, %s panden", n, res["gone"], res["properties"])
-    print(f"Import: {n} records · {res['properties']} unieke panden · {res['gone']} niet meer in de bron")
+    mandates = read_mandates(path)
+    m = {"mandates": 0, "awarded": 0}
+    for i in range(0, len(mandates), 2000):
+        r = call(con, "select worker.import_mandates(%s, %s)", team, mandates[i:i + 2000])
+        m["mandates"] += r["mandates"]
+        m["awarded"] += r["awarded"]
+    log.info("import: %d records, %s niet meer in de bron, %s panden; %d opdrachten, %d inkoopbonussen",
+             n, res["gone"], res["properties"], m["mandates"], m["awarded"])
+    print(f"Import: {n} records · {res['properties']} unieke panden · {res['gone']} niet meer in de bron · "
+          f"{m['mandates']} opdrachten · {m['awarded']} nieuwe inkoopbonussen")
 
 
 def check_one(fetch, con, run, item, cache):

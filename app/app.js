@@ -596,6 +596,7 @@ async function viewDay() {
           <div class="row" style="margin-top:6px"><div class="bar xp seg grow"><i data-w="${d.level.progress}"></i></div><span class="tiny muted num">${d.level.xp}/${d.level.next} XP</span></div></div>
       </a>
       <div id="outbox-slot"></div>
+      <div id="bonus-slot" class="stack"></div>
       <section class="panel">
         <div class="panel-head"><span class="label">Dagmissie</span><span class="tag">${t.goal} deuren</span></div>
         <div class="mission">
@@ -647,11 +648,21 @@ async function viewDay() {
         <div class="panel-head" style="margin-bottom:8px"><span class="label">Puntenregels</span><span class="tiny faint">hoogste resultaat telt</span></div>
         <div class="grid4">${Object.keys(RES).map((k) => `<div class="t-${k}" style="text-align:center"><div style="color:var(--t)">${icon(RES[k].icon)}</div><b class="num" style="color:var(--t);font-size:18px">${d.rule[k]}</b><div class="tiny muted">${RES[k].label.split(" ")[0]}</div></div>`).join("")}</div>
         <p class="tiny faint" style="margin:8px 0 0">Herbezoek binnen ${d.rule.cooldown_days} dagen: ${d.rule.revisit_pct}% voor aanbellen of gesprek.</p>
+        <p class="tiny faint" style="margin:4px 0 0" id="rule-bonus"></p>
       </section>
     </div>`;
   paintOutbox();
   fillBars();
   on("#start", "click", startRound);
+  rpc("my_recent_bonuses").then((b) => {
+    const slot = $("#bonus-slot");
+    if (slot && b.bonuses.length) {
+      slot.innerHTML = b.bonuses.slice(0, 3).map((x) => `<div class="unlock"><span class="hex" style="--t:var(--diamond)">${icon("crown")}</span>
+        <div class="grow"><div class="label">Inkoopbonus</div><b>+${x.amount} punten</b><div class="small muted">${esc(x.address)} werd een opdracht (${fmtDate(x.date)})</div></div></div>`).join("");
+    }
+    const rl = $("#rule-bonus");
+    if (rl && b.rule) rl.innerHTML = `Inkoopbonus: <b>+${b.rule.bonus}</b> als een deur die je bezocht binnen ${Math.round(b.rule.window_days / 30)} maanden een opdracht wordt.`;
+  }).catch(() => {});
   flushOutbox();
 }
 
@@ -1967,12 +1978,20 @@ async function paintAdminAanbellen(members) {
   if (!box) return;
   let r;
   try { r = await rpc("scout_admin_reviews"); } catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  let bonus = { awards: [], mandates: 0 };
+  try { bonus = await rpc("admin_mandate_bonuses"); } catch { /* ignore */ }
   const kindLabel = { apartment_without_box: "Appartement zonder bus", realo_address_conflict: "Zelfde Realo-pand, ander adres", same_address_other_realo: "Zelfde adres, ander Realo-pand" };
   box.innerHTML = `<span class="label">Medewerkers in ERAforce → ERA Scout</span>
     <p class="small muted" style="margin:0">Prospects verschijnen bij de ERA Scout-gebruiker met hetzelfde e-mailadres als de prospecteigenaar in ERAforce. Wachtrijen zijn niet gekoppeld.</p>
     <div class="list">${r.owners.filter((o) => !o.queue).map((o) => `<div class="item" data-owner="${esc(o.owner_key)}"><div class="grow"><div class="title small">${esc(o.label || o.owner_key)}</div>
       <div class="sub tiny">${o.records} prospects · ${o.method === "manual" ? "handmatig" : o.profile_id ? "via e-mail" : "niet gekoppeld"}</div></div>
       <select class="input" data-link style="width:150px;min-height:44px"><option value="">—</option>${members.filter((m) => m.active).map((m) => `<option value="${m.id}" ${m.id === o.profile_id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select></div>`).join("") || '<p class="small muted" style="padding:12px;margin:0">Nog geen import.</p>'}</div>
+    <span class="label">Inkoopbonussen (${bonus.awards.filter((a) => !a.revoked).length})</span>
+    <p class="small muted" style="margin:0">${bonus.mandates} opdrachten uit ERAforce${bonus.last_import ? ` · import ${fmtStamp(bonus.last_import)}` : ""}.</p>
+    ${bonus.awards.length ? `<div class="list">${bonus.awards.slice(0, 40).map((a) => `<div class="item" data-award="${a.mandate_id}" data-user="${a.user_id}" style="flex-wrap:wrap">
+      <div class="grow"><div class="title small">${esc(a.user)} · ${a.revoked ? "<s>" : ""}+${a.amount}${a.revoked ? "</s> ingetrokken" : ""}</div>
+        <div class="sub tiny">${esc(a.address)} · bezocht ${fmtDate(a.visit_date)} · ${esc((a.kind || "opdracht").toLowerCase())} getekend ${fmtDate(a.signed_on)}</div></div>
+      ${a.revoked ? "" : '<button class="btn sm ghost" data-revoke>Intrekken</button>'}</div>`).join("")}</div>` : '<p class="small muted" style="margin:0">Nog geen inkoopbonussen.</p>'}
     <span class="label">Te controleren koppelingen (${r.reviews.length})</span>
     ${r.reviews.length ? r.reviews.slice(0, 30).map((v) => `<div class="panel stack" style="background:var(--surface-2)" data-review="${v.id}">
       <b class="small">${esc(kindLabel[v.kind] || v.kind)}</b><div class="small">${esc(v.record_address)}${v.other_address ? `<br><span class="muted">vs. ${esc(v.other_address)}</span>` : ""}</div>
@@ -1982,6 +2001,13 @@ async function paintAdminAanbellen(members) {
   on("[data-link]", "change", async (e) => {
     const key = e.currentTarget.closest("[data-owner]").dataset.owner;
     try { await rpc("scout_admin_link_owner", { p_owner_key: key, p_profile: e.currentTarget.value || null }); toast("Koppeling opgeslagen"); } catch (err) { toast(err.message); }
+  }, box);
+  on("[data-revoke]", "click", async (e) => {
+    const row = e.currentTarget.closest("[data-award]");
+    const reason = prompt("Reden om deze inkoopbonus in te trekken:");
+    if (!reason) return;
+    try { await rpc("admin_revoke_bonus", { p_mandate: +row.dataset.award, p_user: row.dataset.user, p_reason: reason }); toast("Bonus ingetrokken"); paintAdminAanbellen(members); }
+    catch (err) { toast(err.message); }
   }, box);
   on("[data-rv]", "click", async (e) => {
     const id = +e.currentTarget.closest("[data-review]").dataset.review;
@@ -2065,9 +2091,12 @@ async function viewAdmin() {
       <form id="rules" class="stack"><div class="grid4">
         ${Object.keys(RES).map((k) => `<label class="field t-${k}"><span class="label" style="color:var(--t)">${RES[k].label.split(" ")[0]}</span><input class="input" type="number" min="0" name="${k}" value="${rule[k]}"></label>`).join("")}</div>
         <label class="field"><span class="label">Herbezoek binnen ${o.team.revisit_cooldown_days} dagen · % van aanbellen/gesprek</span><input class="input" type="number" min="0" max="100" name="revisit_pct" value="${rule.revisit_pct}"></label>
+        <div class="grid2"><label class="field"><span class="label">Inkoopbonus (punten)</span><input class="input" type="number" min="0" max="10000" name="mandate_bonus" value="${rule.mandate_bonus ?? 100}"></label>
+          <label class="field"><span class="label">Bezoek max. … dagen vóór ondertekening</span><input class="input" type="number" min="30" max="1095" name="mandate_window_days" value="${rule.mandate_window_days ?? 365}"></label></div>
+        <p class="tiny faint" style="margin:0">Inkoopbonus: elke collega die de deur bezocht binnen dit venster vóór de ondertekening van een opdracht (verkoop of verhuur in ERAforce), één keer per opdracht. Telt in de week van de ondertekening.</p>
         <p class="tiny faint" style="margin:0">Totaal per bezoek, niet opgeteld. Nieuwe waarden gelden voor nieuwe bezoeken; reeds verdiende punten veranderen niet.</p>
         <p class="error" id="rules-err"></p><button class="btn primary block">Puntwaarden opslaan</button></form>
-      <table class="table"><tr><th>Sinds</th><th>Aanb.</th><th>Gespr.</th><th>Tel.</th><th>Afspr.</th><th>Herb.</th></tr>${o.rules.map((r) => `<tr><td>${fmtDate(r.created_at)}</td><td>${r.door}</td><td>${r.conversation}</td><td>${r.phone}</td><td>${r.appointment}</td><td>${r.revisit_pct}%</td></tr>`).join("")}</table>
+      <table class="table"><tr><th>Sinds</th><th>Aanb.</th><th>Gespr.</th><th>Tel.</th><th>Afspr.</th><th>Herb.</th><th>Inkoop</th></tr>${o.rules.map((r) => `<tr><td>${fmtDate(r.created_at)}</td><td>${r.door}</td><td>${r.conversation}</td><td>${r.phone}</td><td>${r.appointment}</td><td>${r.revisit_pct}%</td><td>${r.mandate_bonus ?? "–"}</td></tr>`).join("")}</table>
       <form id="team" class="stack"><span class="label">Team</span>
         <label class="field"><span class="label">Teamnaam</span><input class="input" name="name" value="${esc(o.team.name)}" maxlength="60"></label>
         <div class="grid2"><label class="field"><span class="label">Tijdzone</span><input class="input" name="timezone" value="${esc(o.team.timezone)}"></label>

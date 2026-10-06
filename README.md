@@ -174,3 +174,13 @@ ingebouwde Postgres) en de app op http://localhost:54321. Enkel voor testen.
 | `tests/` | tests van spelregels, rechten en adresfuncties tegen Postgres |
 | `scripts/` | lokale nabootsing van Supabase, `scout_worker.py` (bronkoppeling en controles op de Mac) |
 | `mac/` | achtergrondtaak (launchd) voor de controles |
+
+## Inkoopbonus
+
+Wordt een deur die een collega bezocht later een opdracht (verkoop of verhuur) in ERAforce, dan krijgt die collega extra punten.
+
+- **Bron:** `Opportunity` uit de ERAforce-spiegel (laatste 3 jaar), met het adres van het gekoppelde `ERA_Object__c`. De Mac-worker neemt ze mee bij elke `import`. Er gaan geen persoonsgegevens mee.
+- **Datum:** `ERA_Datum_Ondertekening_Mandaat__c`; als die leeg is `ERA_Start_opdracht__c`. De aanmaakdatum telt nooit als inkoopdatum (zonder datum: geen bonus).
+- **Koppeling:** op gebouwniveau (straat + huisnummer + postcode, zonder bus). Het bezoek moet binnen het venster vóór de ondertekening liggen (standaard 365 dagen).
+- **Punten:** standaard 100, één keer per opdracht per collega. Alle collega's die de deur binnen het venster bezochten, krijgen de bonus. Hij telt mee in de week/ronde van de ondertekening (niet in de dagscore van het bezoek).
+- **Beheer:** bonus en venster stel je in bij *Punten & team*. Onder *Aanbellen* zie je alle toegekende bonussen en kun je er een intrekken (met reden). Een ingetrokken bonus wordt niet opnieuw toegekend.

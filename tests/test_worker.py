@@ -57,6 +57,17 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(q["owner_is_queue"])
         self.assertIsNone(q["owner_email"])
 
+    def test_opportunity_mapping(self):
+        opp = {"Id": "006A", "OwnerId": "005A", "RecordTypeId": "012V", "StageName": "Actief - In Verkoop",
+               "ERA_Datum_Ondertekening_Mandaat__c": "2026-09-01", "ERA_Start_opdracht__c": "2026-09-03", "CreatedDate": "2026-08-01T10:00:00Z",
+               "ERA_Straat__c": "Molenstraat", "ERA_Huisnummer__c": "4", "ERA_Postcode__c": "1800", "ERA_Gemeente__c": "Vilvoorde"}
+        m = w.opportunity_to_mandate(opp, opp, {"005A": {"Name": "Collega"}}, {"012V": "Verkoop"})
+        self.assertEqual((m["signed_on"], m["date_basis"], m["kind"]), ("2026-09-01", "ERA_Datum_Ondertekening_Mandaat__c", "Verkoop"))
+        no_sign = {**opp, "ERA_Datum_Ondertekening_Mandaat__c": None}
+        self.assertEqual(w.opportunity_to_mandate(no_sign, no_sign, {}, {})["date_basis"], "ERA_Start_opdracht__c")
+        none = {**no_sign, "ERA_Start_opdracht__c": None}
+        self.assertIsNone(w.opportunity_to_mandate(none, none, {}, {}))   # aanmaakdatum telt niet als inkoopdatum
+
     def test_immoweb_statuses(self):
         u = ITEM["immoweb_url"]
         f = lambda html, code=200, eff=u: FakeFetch({u: (code, eff, html)})

@@ -31,7 +31,8 @@ def rec(ext, owner, street, number, *, box=None, market=None, realo=None, lifecy
             "realo_property_id": realo, "raw": {"Status": "In Opvolging"}}
 
 
-class AanbellenTest(unittest.TestCase):
+class AanbellenBase(unittest.TestCase):
+    """Gedeelde opbouw: alle migraties, een team, twee collega's en een set bronrecords."""
     @classmethod
     def setUpClass(cls):
         cls.url = database_url()
@@ -106,6 +107,7 @@ class AanbellenTest(unittest.TestCase):
                      "and id = (select max(id) from public.listing_checks where property_id = %s and site = %s)", hours_ago, pid, site, pid, site)
         return pid
 
+class AanbellenTest(AanbellenBase):
     # ---- matching & periods
 
     def test_matching(self):
@@ -217,3 +219,59 @@ class AanbellenTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InkoopbonusTest(AanbellenBase):
+    """Extra punten als een bezochte deur een opdracht wordt."""
+
+    def mandate(self, ext, street, number, postcode, signed_days_ago, kind="Verkoop"):
+        return self.worker("select worker.import_mandates(%s, %s)", self.team, Jsonb([{
+            "external_id": ext, "kind": kind, "stage": "Actief - In Verkoop", "signed_on": d(signed_days_ago),
+            "date_basis": "ERA_Datum_Ondertekening_Mandaat__c", "street": street, "number": number, "postcode": postcode, "city": "Vilvoorde"}]))
+
+    def backdated_visit(self, user, address, days_ago, result="door"):
+        with psycopg.connect(self.url, autocommit=True) as con:
+            prof = f"(select p from public.profiles p where id = '{user.id}')"
+            ts = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days_ago)).isoformat()
+            return con.execute(f"select app.register_visit({prof}, %s, true)",
+                               (Jsonb({"client_id": __import__("uuid").uuid4().hex, "result": result,
+                                       "new_prospect": {"address": address}, "visited_at": ts}),)).fetchone()[0]
+
+    def test_bonus_for_visitors_before_signing(self):
+        v1 = self.backdated_visit(self.sofie, "Molenstraat 4, 1800 Vilvoorde", 40)
+        self.backdated_visit(self.lars, "Molenstraat 4, 1800 Vilvoorde", 20, "conversation")
+        self.backdated_visit(self.lars, "molenstr. 4, 1800 Vilvoorde", 15)          # tweede bezoek: geen tweede bonus
+        self.backdated_visit(self.sofie, "Molenstraat 6, 1800 Vilvoorde", 40)         # andere deur
+        r = self.mandate("006M0000000001", "Molenstraat", "4", "1800", 10)
+        self.assertEqual((r["mandates"], r["awarded"]), (1, 2))
+        again = self.mandate("006M0000000001", "Molenstraat", "4", "1800", 10)
+        self.assertEqual(again["awarded"], 0)                                          # niet dubbel
+        # Bezoek na de ondertekening of buiten het venster: geen bonus
+        self.backdated_visit(self.sofie, "Veldstraat 1, 1800 Vilvoorde", 5)
+        self.assertEqual(self.mandate("006M0000000002", "Veldstraat", "1", "1800", 10)["awarded"], 0)
+        self.backdated_visit(self.sofie, "Veldstraat 3, 1800 Vilvoorde", 500)
+        self.assertEqual(self.mandate("006M0000000003", "Veldstraat", "3", "1800", 10)["awarded"], 0)
+        # Bonus in de week van de ondertekening, niet in die van het bezoek; bezoekpunten blijven 5
+        week = self.sofie.call("leaderboard", p_period="week")
+        self.assertEqual(self.sql("select app.visit_points(%s)", v1["visit"]["id"])[0][0], 5)
+        tx = self.sql("select amount, effective_date from public.point_transactions where kind = 'mandate' and user_id = %s", self.sofie.id)
+        self.assertEqual(tx, [(100, (TODAY - dt.timedelta(days=10)))])
+        # Een correctie van het bezoek raakt de bonus niet
+        fix = self.sofie.call("visit_update", p_id=v1["visit"]["id"], p_data={"result": "conversation", "reason": "Toch gesprek"})
+        self.assertEqual(fix["points"], 5)
+        self.assertEqual(self.sql("select coalesce(sum(amount),0) from public.point_transactions where visit_id = %s and kind = 'mandate'", v1["visit"]["id"])[0][0], 100)
+        # Beheerder kan intrekken met reden
+        mid = self.sql("select id from public.mandates where external_id = '006M0000000001'")[0][0]
+        self.assertEqual(self.lars.fails("admin_revoke_bonus", p_mandate=mid, p_user=str(self.sofie.id), p_reason="xx").hint, "forbidden")
+        self.sofie.call("admin_revoke_bonus", p_mandate=mid, p_user=str(self.sofie.id), p_reason="Opdracht kwam via notaris")
+        self.assertEqual(self.sql("select sum(amount) from public.point_transactions where kind = 'mandate' and user_id = %s", self.sofie.id)[0][0], 0)
+        self.assertEqual(len(self.lars.call("my_recent_bonuses")["bonuses"]), 1)
+        self.assertTrue(week["entries"])
+
+    def test_rules_keep_bonus_settings(self):
+        self.sofie.call("admin_rules", p_data={"door": 5, "conversation": 10, "phone": 15, "appointment": 30, "revisit_pct": 50,
+                                               "mandate_bonus": 150, "mandate_window_days": 180})
+        self.sofie.call("admin_rules", p_data={"door": 5, "conversation": 10, "phone": 15, "appointment": 30, "revisit_pct": 50})
+        self.assertEqual(self.sql("select mandate_bonus, mandate_window_days from public.point_rules order by id desc limit 1")[0], (150, 180))
+        self.assertIn("10000", self.sofie.fails("admin_rules", p_data={"door": 5, "conversation": 10, "phone": 15, "appointment": 30,
+                                                                     "mandate_bonus": 99999}).message)
