@@ -77,7 +77,7 @@ class DatabaseTest(unittest.TestCase):
     def setUpClass(cls):
         cls.url = database_url()
         with psycopg.connect(cls.url, autocommit=True) as con:
-            con.execute("drop schema if exists public cascade; drop schema if exists app cascade; create schema public;")
+            con.execute("drop schema if exists public cascade; drop schema if exists app cascade; drop schema if exists worker cascade; create schema public;")
             con.execute(AUTH_STUB)
             for path in sorted(glob.glob(os.path.join(ROOT, "supabase", "migrations", "*.sql"))):
                 with open(path) as f:
