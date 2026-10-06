@@ -614,6 +614,11 @@ def cmd_check(maximum):
             return check_one(fetch, local.con, claim["run_id"], it, cache)
         except Exception as e:  # noqa: BLE001 — één pand mag de ronde niet stoppen
             log.warning("pand %s: %s", it.get("property_id"), type(e).__name__)
+            if type(e).__name__ in ("OperationalError", "InterfaceError"):
+                try:
+                    local.con.close()
+                finally:
+                    del local.con          # volgende pand: nieuwe verbinding
             return "failed", "failed"
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:

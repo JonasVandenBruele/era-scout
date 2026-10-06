@@ -210,6 +210,7 @@ class AanbellenTest(AanbellenBase):
     def test_agency_website_learned(self):
         a, c = self.prop("00Q000000000A2"), self.prop("00Q000000000C1")
         self.sql("update public.source_records set agency_name = 'Immo Test' where external_id in ('00Q000000000A2', '00Q000000000C1')")
+        self.sql("update public.source_records set agency_name = 'IMMO TEST' where external_id = '00Q000000000A1'")  # andere schrijfwijze
         self.assertIsNone(self.cards()[c]["agency_url"])
         self.assertEqual(self.cards()[c]["agency_name"], "Immo Test")
         run = self.sql("insert into public.check_runs (team_id, kind, worker) values (%s, 'request', 'test') returning id", self.team)[0][0]
@@ -222,8 +223,8 @@ class AanbellenTest(AanbellenBase):
         self.sofie.call("admin_set_agency_site", p_name="IMMO test", p_website="https://immo-test.be")
         self.worker("select worker.save_check(%s, %s, 'immoweb', 'https://x', 'active', 'ok', null, null, 200, %s)", run, a, details)
         self.assertEqual(self.cards()[c]["agency_url"], "https://immo-test.be")          # handmatig wint
-        names = {x["name"]: x for x in self.sofie.call("admin_agency_sites")["agencies"]}
-        self.assertEqual(names["Immo Test"]["source"], "manual")
+        names = {x["name"].lower(): x for x in self.sofie.call("admin_agency_sites")["agencies"]}
+        self.assertEqual(names["immo test"]["source"], "manual")
         self.assertEqual(self.lars.fails("admin_agency_sites").hint, "forbidden")
         self.sql("update public.source_records set agency_name = null")
         self.sql("delete from public.agency_sites")
