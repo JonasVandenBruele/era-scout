@@ -570,20 +570,20 @@ def cmd_import(path):
           f"{m['mandates']} opdrachten · {m['awarded']} nieuwe inkoopbonussen")
 
 
-def check_one(fetch, con, run, item, cache):
+def check_one(fetch, db, run, item, cache):
     iw = check_listing(fetch, item)
     ag = check_agency(fetch, item, iw, cache)
     for site, r in (("immoweb", iw), ("agency", ag)):
-        call(con, "select worker.save_check(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", run, item["property_id"], site,
+        call(db(), "select worker.save_check(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", run, item["property_id"], site,
              r.get("url"), r["status"], r.get("reason"), r.get("evidence"), r.get("error"), r.get("http"), r.get("details") or {})
     det = iw.get("details") or {}
     if item.get("geo_quality") != "exact":
         if det.get("lat") and det.get("lon"):
-            call(con, "select worker.save_geo(%s, %s, %s, 'immoweb', 'exact')", item["property_id"], det["lat"], det["lon"])
+            call(db(), "select worker.save_geo(%s, %s, %s, 'immoweb', 'exact')", item["property_id"], det["lat"], det["lon"])
         else:
             g = geocode(fetch, item)
             if g:
-                call(con, "select worker.save_geo(%s, %s, %s, 'geopunt', 'exact')", item["property_id"], g[0], g[1])
+                call(db(), "select worker.save_geo(%s, %s, %s, 'geopunt', 'exact')", item["property_id"], g[0], g[1])
     return iw["status"], ag["status"]
 
 
@@ -607,18 +607,30 @@ def cmd_check(maximum):
     fetch, cache, stats, astats = Fetcher(gap=3.0), {}, {}, {}
     local = threading.local()
 
-    def work(it):
+    def db():
+        """Eén verbinding per thread; na lang wachten (grote makelaarssite) sluit de pooler ze, dan een nieuwe."""
+        if hasattr(local, "con") and time.monotonic() - local.used > 240:
+            try:
+                local.con.close()
+            except Exception:  # noqa: BLE001
+                pass
+            del local.con
         if not hasattr(local, "con"):
-            local.con = connect()  # één verbinding per thread
+            local.con = connect()
+        local.used = time.monotonic()
+        return local.con
+
+    def work(it):
         try:
-            return check_one(fetch, local.con, claim["run_id"], it, cache)
+            return check_one(fetch, db, claim["run_id"], it, cache)
         except Exception as e:  # noqa: BLE001 — één pand mag de ronde niet stoppen
             log.warning("pand %s: %s", it.get("property_id"), type(e).__name__)
-            if type(e).__name__ in ("OperationalError", "InterfaceError"):
+            if type(e).__name__ in ("OperationalError", "InterfaceError") and hasattr(local, "con"):
                 try:
                     local.con.close()
-                finally:
-                    del local.con          # volgende pand: nieuwe verbinding
+                except Exception:  # noqa: BLE001
+                    pass
+                del local.con              # volgende pand: nieuwe verbinding
             return "failed", "failed"
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -632,7 +644,11 @@ def cmd_check(maximum):
                 + " · makelaar: " + ", ".join(f"{k} {v}" for k, v in sorted(astats.items())))
         if kind == "daily" and len(items) >= maximum:
             note = "gedeeltelijk · " + note  # maximum bereikt: de volgende ronde doet de rest
-        call(con, "select worker.finish_run(%s, %s)", claim["run_id"], note)
+        try:
+            con.close()
+        except Exception:  # noqa: BLE001
+            pass
+        call(connect(), "select worker.finish_run(%s, %s)", claim["run_id"], note)  # verse verbinding na een lange ronde
     log.info("controle %s: %s", kind, note)
     print(f"Controle ({kind}): {note}")
 
