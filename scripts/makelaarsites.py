@@ -258,6 +258,18 @@ def candidates(details, item, reference, extra_ids=()):
     return strong + medium, False
 
 
+def street_patterns(raw):
+    """Regex voor een straatnaam die afkortingen verdraagt ("Lod. van Veltemstraat" = "Lodewijk van Veltemstraat"),
+    plus een korte vorm met enkel het laatste woord als dat specifiek genoeg is (alleen samen met het huisnummer)."""
+    words = norm(raw).split()
+    if not words:
+        return None, None
+    parts = [re.escape(w) + r"[a-z]*" for w in words[:-1]] + [re.escape(words[-1])]
+    full = r"\b" + r" ".join(parts)
+    short = r"\b" + re.escape(words[-1]) if len(words) > 1 and len(words[-1]) >= 8 else None
+    return full, short
+
+
 def match_page(page, item, reference):
     """→ (status, reden, bewijs) als deze pagina aantoonbaar over het pand gaat, anders None."""
     text, title = page.get("text") or "", page.get("title") or ""
@@ -268,18 +280,24 @@ def match_page(page, item, reference):
         marks += [m.start() for m in re.finditer(r"\b" + re.escape(r) + r"\b", low)]
         evidence = "referentie" if marks else None
     street, nr = norm(item.get("street")), norm(item.get("number"))
+    full, short = street_patterns(item.get("street"))
     if street and nr and not marks:
-        marks += [m.start() for m in re.finditer(r"\b" + re.escape(street) + r" " + re.escape(nr) + r"\b", low)]
-        marks += [m.start() for m in re.finditer(r"\b" + re.escape(nr) + r" " + re.escape(street) + r"\b", low)]
+        nrp = re.sub(r"^(\d+)([a-z]+)$", r"\1 ?\2", nr) if re.fullmatch(r"\d+[a-z]+", nr) else re.escape(nr)
+        for pat in filter(None, (full, short)):
+            marks += [m.start() for m in re.finditer(pat + r" " + nrp + r"\b", low)]
+            marks += [m.start() for m in re.finditer(r"\b" + nrp + r" " + pat, low)]
         evidence = "adres" if marks else None
-    if not marks and street:
+    if not marks and full:
         # Veel makelaars tonen geen huisnummer. Straat + gemeente/postcode, zonder ander huisnummer in die straat.
-        hits = [m.start() for m in re.finditer(r"\b" + re.escape(street) + r"\b", low)]
+        hits = list(re.finditer(full + r"\b", low))
         place = norm(item.get("postcode")) in low or norm(item.get("city")) in low
-        other_nr = any(re.match(r" (\d+)\b", low[h + len(street): h + len(street) + 8]) and
-                       re.match(r" (\d+)\b", low[h + len(street):]).group(1) != nr for h in hits)
+        other_nr = False
+        for h in hits:
+            m = re.match(r" (\d+[a-z]?)\b", low[h.end(): h.end() + 10])
+            if m and m.group(1) != nr:
+                other_nr = True
         if hits and place and not other_nr:
-            marks, evidence = hits, "straat"
+            marks, evidence = [h.start() for h in hits], "straat"
     if not marks:
         return None
     window = " ".join(low[max(0, i - 300): i + 300] for i in marks[:5])

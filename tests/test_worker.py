@@ -91,6 +91,13 @@ class WorkerTest(unittest.TestCase):
         other = ms.find_on_site(fetch, base, {**ITEM, "street": "Molenstraat", "number": "4"}, None, lambda: [])
         self.assertEqual(other["status"], "not_found")                             # kleine site volledig gelezen
 
+    def test_street_abbreviations(self):
+        item = {**ITEM, "street": "Lod. van Veltemstraat", "number": "51A", "postcode": "3020", "city": "Herent"}
+        page = {"title": "Kangoeroewoning", "text": "Huis Lodewijk van Veltemstraat 51/A/B, 3020 Veltem-Beisem. Te koop", "url": "x"}
+        self.assertEqual(ms.match_page(page, item, None)[::2], ("active", "adres"))
+        other = {**page, "text": "Huis Lodewijk van Veltemstraat 7, 3020 Veltem-Beisem. Te koop"}
+        self.assertIsNone(ms.match_page(other, item, None))                       # ander huisnummer: geen match
+
     def test_agency_name(self):
         base = {"ERA_Bron_Bemiddelaar__c": "Marketpulse / Concurrent Makelaar", "FirstName": None,
                 "LastName": "Kerkstraat 12, 1800 Vilvoorde, Immo Nuvo"}
