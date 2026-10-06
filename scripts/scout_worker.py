@@ -604,7 +604,7 @@ def cmd_check(maximum):
         print("Niets te controleren." if claim.get("nothing_to_do") else "Er loopt al een controleronde (elders of eerder gestart).")
         return
     items = claim["items"]
-    fetch, cache, stats = Fetcher(gap=3.0), {}, {}
+    fetch, cache, stats, astats = Fetcher(gap=3.0), {}, {}, {}
     local = threading.local()
 
     def work(it):
@@ -622,10 +622,14 @@ def cmd_check(maximum):
             return "failed", "failed"
     try:
         with ThreadPoolExecutor(max_workers=2) as pool:
-            for iw, ag in pool.map(work, items):
+            for n, (iw, ag) in enumerate(pool.map(work, items), 1):
                 stats[iw] = stats.get(iw, 0) + 1
+                astats[ag] = astats.get(ag, 0) + 1
+                if n % 25 == 0:
+                    log.info("controle %s: %d/%d panden", kind, n, len(items))
     finally:
-        note = f"{len(items)} panden · Immoweb: " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items()))
+        note = (f"{len(items)} panden · portaal: " + ", ".join(f"{k} {v}" for k, v in sorted(stats.items()))
+                + " · makelaar: " + ", ".join(f"{k} {v}" for k, v in sorted(astats.items())))
         if kind == "daily" and len(items) >= maximum:
             note = "gedeeltelijk · " + note  # maximum bereikt: de volgende ronde doet de rest
         call(con, "select worker.finish_run(%s, %s)", claim["run_id"], note)
