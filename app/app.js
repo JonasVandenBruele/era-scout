@@ -1675,6 +1675,18 @@ function checkRow(label, chk, fallbackUrl) {
     ${ls && ls.checked_at !== chk.checked_at && (stale || ["failed", "unknown"].includes(chk.status)) ? `<div class="tiny faint chk-r">Laatste geslaagde controle: ${esc((CHECK_LABEL[ls.status] || [ls.status])[0].toLowerCase())} op ${fmtStamp(ls.checked_at)}</div>` : ""}`;
 }
 
+const agencySearch = (c) => `https://www.google.com/search?q=${encodeURIComponent(`${c.agency_name} makelaar ${c.city || ""}`.trim())}`;
+
+function agencyLine(c) {
+  const lbl = (c.agency || "").toLowerCase();
+  const who = c.agency_name || (lbl.includes("particulier") ? "Particulier" : lbl.includes("notaris") ? "Notaris" : null);
+  if (!who) return "";
+  const link = c.agency_url
+    ? `<a href="${esc(c.agency_url)}" target="_blank" rel="noopener">${esc(c.agency_url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/.*$/, ""))}</a>`
+    : c.agency_name ? `<a href="${esc(agencySearch(c))}" target="_blank" rel="noopener">zoek website</a>` : "";
+  return `<div class="tiny muted chk-r">${esc(who)}${link ? ` · ${link}` : ""}</div>`;
+}
+
 function propertyCard(c, prefs) {
   const first = prefs.basis === "first";
   const days = first ? c.days_first : c.days_current;
@@ -1701,6 +1713,7 @@ function propertyCard(c, prefs) {
     <div class="chks">
       ${checkRow("Immoweb", c.immoweb, c.immoweb_url)}
       ${checkRow("Makelaar", c.agency_check, c.agency_url)}
+      ${agencyLine(c)}
       ${c.manual && c.manual.id ? `<div class="tiny muted chk-r">Handmatig: ${c.manual.status === "active" ? "nog te koop" : "niet meer te koop"} (${fmtDate(c.manual.observed_on)}, ${esc(c.manual.origin)})</div>` : ""}
     </div>
     <div class="row spread" style="margin-top:8px"><span class="pill ${c.decision === "eligible" ? "ok" : c.decision === "not_for_sale" ? "red" : "warn"}">${dec}</span>
@@ -1978,6 +1991,8 @@ async function paintAdminAanbellen(members) {
   if (!box) return;
   let r;
   try { r = await rpc("scout_admin_reviews"); } catch (e) { box.innerHTML = `<p class="error">${esc(e.message)}</p>`; return; }
+  let ag = { agencies: [] };
+  try { ag = await rpc("admin_agency_sites"); } catch { /* ignore */ }
   let bonus = { awards: [], mandates: 0 };
   try { bonus = await rpc("admin_mandate_bonuses"); } catch { /* ignore */ }
   const kindLabel = { apartment_without_box: "Appartement zonder bus", realo_address_conflict: "Zelfde Realo-pand, ander adres", same_address_other_realo: "Zelfde adres, ander Realo-pand" };
@@ -1992,6 +2007,12 @@ async function paintAdminAanbellen(members) {
       <div class="grow"><div class="title small">${esc(a.user)} · ${a.revoked ? "<s>" : ""}+${a.amount}${a.revoked ? "</s> ingetrokken" : ""}</div>
         <div class="sub tiny">${esc(a.address)} · bezocht ${fmtDate(a.visit_date)} · ${esc((a.kind || "opdracht").toLowerCase())} getekend ${fmtDate(a.signed_on)}</div></div>
       ${a.revoked ? "" : '<button class="btn sm ghost" data-revoke>Intrekken</button>'}</div>`).join("")}</div>` : '<p class="small muted" style="margin:0">Nog geen inkoopbonussen.</p>'}
+    <span class="label">Websites van makelaars (${ag.agencies.filter((a) => a.website).length}/${ag.agencies.length})</span>
+    <p class="small muted" style="margin:0">Scout leert de website uit Immoweb. Ontbreekt er een, vul ze zelf in (leeg = wissen).</p>
+    <details><summary class="small">Toon kantoren</summary><div class="list">${ag.agencies.map((a) => `<form class="item" data-agency="${esc(a.name)}" style="flex-wrap:wrap;gap:6px">
+      <div class="grow" style="min-width:140px"><div class="title small">${esc(a.name)}</div><div class="sub tiny">${a.properties} panden${a.source ? ` · ${a.source === "manual" ? "handmatig" : "via Immoweb"}` : ""}</div></div>
+      <input class="input" name="w" type="url" inputmode="url" placeholder="https://…" value="${esc(a.website || "")}" style="flex:1 1 180px;min-height:44px">
+      <button class="btn sm ghost">Bewaar</button></form>`).join("")}</div></details>
     <span class="label">Te controleren koppelingen (${r.reviews.length})</span>
     ${r.reviews.length ? r.reviews.slice(0, 30).map((v) => `<div class="panel stack" style="background:var(--surface-2)" data-review="${v.id}">
       <b class="small">${esc(kindLabel[v.kind] || v.kind)}</b><div class="small">${esc(v.record_address)}${v.other_address ? `<br><span class="muted">vs. ${esc(v.other_address)}</span>` : ""}</div>
@@ -2001,6 +2022,12 @@ async function paintAdminAanbellen(members) {
   on("[data-link]", "change", async (e) => {
     const key = e.currentTarget.closest("[data-owner]").dataset.owner;
     try { await rpc("scout_admin_link_owner", { p_owner_key: key, p_profile: e.currentTarget.value || null }); toast("Koppeling opgeslagen"); } catch (err) { toast(err.message); }
+  }, box);
+  on("[data-agency]", "submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget;
+    try { await rpc("admin_set_agency_site", { p_name: f.dataset.agency, p_website: f.w.value.trim() }); toast("Bewaard"); }
+    catch (err) { toast(err.message); }
   }, box);
   on("[data-revoke]", "click", async (e) => {
     const row = e.currentTarget.closest("[data-award]");

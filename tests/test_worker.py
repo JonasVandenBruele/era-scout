@@ -57,6 +57,16 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(q["owner_is_queue"])
         self.assertIsNone(q["owner_email"])
 
+    def test_agency_name(self):
+        base = {"ERA_Bron_Bemiddelaar__c": "Marketpulse / Concurrent Makelaar", "FirstName": None,
+                "LastName": "Kerkstraat 12, 1800 Vilvoorde, Immo Nuvo"}
+        self.assertEqual(w.agency_name(base), "Immo Nuvo")
+        self.assertEqual(w.agency_name({**base, "ERA_Bron_Bemiddelaar__c": "Marketpulse / Concurrent Makelaar (Dewaele)"}), "Dewaele")
+        self.assertIsNone(w.agency_name({**base, "FirstName": "Jan", "LastName": "Peeters"}))       # persoon: nooit
+        self.assertIsNone(w.agency_name({**base, "LastName": "Peeters"}))                           # geen adresvorm
+        self.assertIsNone(w.agency_name({**base, "ERA_Bron_Bemiddelaar__c": "Marketpulse / Particulier"}))
+        self.assertEqual(w.lead_to_record({"Id": "00Q1", **base}, {}, {})["agency_name"], "Immo Nuvo")
+
     def test_opportunity_mapping(self):
         opp = {"Id": "006A", "OwnerId": "005A", "RecordTypeId": "012V", "StageName": "Actief - In Verkoop",
                "ERA_Datum_Ondertekening_Mandaat__c": "2026-09-01", "ERA_Start_opdracht__c": "2026-09-03", "CreatedDate": "2026-08-01T10:00:00Z",

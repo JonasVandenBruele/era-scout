@@ -207,6 +207,26 @@ class AanbellenTest(AanbellenBase):
         self.assertTrue(self.worker("select worker.daily_done(%s)", self.team))
         self.sql("delete from public.check_runs where kind = 'daily'")
 
+    def test_agency_website_learned(self):
+        a, c = self.prop("00Q000000000A2"), self.prop("00Q000000000C1")
+        self.sql("update public.source_records set agency_name = 'Immo Test' where external_id in ('00Q000000000A2', '00Q000000000C1')")
+        self.assertIsNone(self.cards()[c]["agency_url"])
+        self.assertEqual(self.cards()[c]["agency_name"], "Immo Test")
+        run = self.sql("insert into public.check_runs (team_id, kind, worker) values (%s, 'request', 'test') returning id", self.team)[0][0]
+        details = Jsonb({"agency_type": "AGENCY", "agency_website": "https://www.immotest.be"})
+        self.worker("select worker.save_check(%s, %s, 'immoweb', 'https://x', 'active', 'ok', null, null, 200, %s)", run, a, details)
+        self.assertEqual(self.cards()[c]["agency_url"], "https://www.immotest.be")       # geleerd via ander pand
+        self.sofie.call("admin_set_agency_site", p_name="IMMO test", p_website="https://immo-test.be")
+        self.worker("select worker.save_check(%s, %s, 'immoweb', 'https://x', 'active', 'ok', null, null, 200, %s)", run, a, details)
+        self.assertEqual(self.cards()[c]["agency_url"], "https://immo-test.be")          # handmatig wint
+        names = {x["name"]: x for x in self.sofie.call("admin_agency_sites")["agencies"]}
+        self.assertEqual(names["Immo Test"]["source"], "manual")
+        self.assertEqual(self.lars.fails("admin_agency_sites").hint, "forbidden")
+        self.sql("update public.source_records set agency_name = null")
+        self.sql("delete from public.agency_sites")
+        self.sql("delete from public.listing_checks where run_id = %s", run)
+        self.sql("delete from public.check_runs where id = %s", run)
+
     def test_access(self):
         with psycopg.connect(self.url) as con:
             con.execute("set local role authenticated")

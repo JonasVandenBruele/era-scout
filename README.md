@@ -175,6 +175,11 @@ ingebouwde Postgres) en de app op http://localhost:54321. Enkel voor testen.
 | `scripts/` | lokale nabootsing van Supabase, `scout_worker.py` (bronkoppeling en controles op de Mac) |
 | `mac/` | achtergrondtaak (launchd) voor de controles |
 
+### Makelaar en website
+
+- **Naam:** Marketpulse zet het concurrerende kantoor in *Bron/Bemiddelaar* tussen haakjes, of in de prospectnaam als `straat nr, postcode gemeente, kantoor` (zonder voornaam). Alleen in die twee vormen neemt de worker de naam over (`agency_name`): nooit een persoonsnaam.
+- **Website:** Immoweb vermeldt de website van het kantoor bij de advertentie. Scout onthoudt die per kantoor (`agency_sites`), zodat ook panden die niet (meer) op Immoweb staan de link krijgen en op de site van de makelaar gecontroleerd worden. In *Beheer → Aanbellen* vul je ontbrekende websites zelf in; een handmatige website wordt nooit overschreven. Zonder bekende website toont de kaart een zoeklink.
+
 ## Inkoopbonus
 
 Wordt een deur die een collega bezocht later een opdracht (verkoop of verhuur) in ERAforce, dan krijgt die collega extra punten.

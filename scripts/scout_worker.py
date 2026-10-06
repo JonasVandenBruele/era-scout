@@ -82,6 +82,25 @@ def iso_date(v):
     return v[:10] if v else None
 
 
+AGENCY_IN_LABEL = re.compile(r"Concurrent Makelaar\s*\((.+)\)\s*$")
+AGENCY_IN_NAME = re.compile(r"^.*?,\s*\d{4}\s+[^,]+,\s*(.+?)\s*$")
+
+
+def agency_name(lead):
+    """Naam van het concurrerende kantoor. Marketpulse zet die in Bron/Bemiddelaar tussen haakjes, of in de
+    prospectnaam als "straat nr, postcode gemeente, kantoor" (dan zonder voornaam). Alleen dan: nooit een persoonsnaam."""
+    label = lead.get("ERA_Bron_Bemiddelaar__c") or ""
+    if "Concurrent Makelaar" not in label:
+        return None
+    m = AGENCY_IN_LABEL.search(label)
+    if m:
+        return m.group(1).strip()
+    if lead.get("FirstName"):
+        return None
+    m = AGENCY_IN_NAME.match(lead.get("LastName") or "")
+    return m.group(1).strip()[:120] if m else None
+
+
 def lead_to_record(lead, users, groups):
     """Eén ERAforce-Lead (rij uit de mirror) → bronrecord voor ERA Scout. Geen persoonsgegevens."""
     owner = lead.get("OwnerId") or ""
@@ -113,6 +132,7 @@ def lead_to_record(lead, users, groups):
         "price_current": lead.get("ERA_Actuele_Vraagprijs__c"),
         "price_initial": lead.get("ERA_Initiele_Vraagprijs__c"),
         "agency_label": lead.get("ERA_Bron_Bemiddelaar__c"),
+        "agency_name": agency_name(lead),
         "immoweb_url": lead.get("ERA_URL_2__c"),
         "immoweb_id": immoweb_id(lead.get("ERA_URL_2__c")),
         "realo_url": lead.get("ERA_Explorer_URL__c"),
