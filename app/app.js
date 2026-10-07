@@ -1762,6 +1762,7 @@ function propertyCard(c, prefs) {
     </div>
     <div class="tiny muted" style="margin:6px 0 0">${since ? `Sinds ${fmtLong(since)} · ${first ? "eerste bekende aanbieding" : "huidige aanbieding"}` : "Geen betrouwbare marktdatum in de bron: geen ouderdom berekend"}${
       c.relisted && !first && c.first_start ? ` · eerste bekende aanbieding ${fmtLong(c.first_start)}` : ""}</div>
+    ${c.follow_up ? `<div class="notice small" style="margin-top:8px">${icon("calendar", "sm")}<span><b>In opvolging</b>: ${c.follow_up.kind === "opdracht" ? `opdracht (${esc((c.follow_up.detail || "").toLowerCase())}) getekend` : esc(c.follow_up.detail || "afspraak")} op ${fmtDate(c.follow_up.date)}${c.follow_up.who ? ` · ${esc(c.follow_up.who)}` : ""}</span></div>` : ""}
     ${badges.length ? `<div class="row wrap" style="gap:6px;margin-top:8px">${badges.join("")}</div>` : ""}
     <div class="chks">
       ${checkRow(portalName(c.immoweb_url), c.immoweb, c.immoweb_url)}
@@ -1801,11 +1802,12 @@ function paintAanbellen() {
   const places = todayPlaces();
   const inPlace = (c) => !places.size || places.has(placeOf(c));
   const cards = d.cards;
-  const by = (k) => cards.filter((c) => c.decision === k && inPlace(c));
+  const by = (k) => cards.filter((c) => c.decision === k && inPlace(c) && !c.follow_up);
   const placeCount = {};
   cards.filter((c) => c.decision !== "not_for_sale").forEach((c) => { placeCount[placeOf(c)] = (placeCount[placeOf(c)] || 0) + 1; });
   const placeList = Object.keys(placeCount).sort();
-  const groups = { eligible: by("eligible"), check: by("needs_check"), selected: cards.filter((c) => c.selected), gone: by("not_for_sale") };
+  const groups = { eligible: by("eligible"), check: by("needs_check"), selected: cards.filter((c) => c.selected), gone: by("not_for_sale"),
+    follow: cards.filter((c) => c.follow_up && !c.selected && inPlace(c)) };
   const list = groups[AB.tab] || [];
   const nSel = groups.selected.length;
   const tab = (k, l) => `<button data-abtab="${k}" aria-pressed="${AB.tab === k}">${l} <span class="num">${groups[k].length}</span></button>`;
@@ -1835,13 +1837,15 @@ function paintAanbellen() {
       ${src.running ? '<span class="tag gold">Controle bezig</span>' : ""}${src.pending_requests ? `<span class="tag">${src.pending_requests} aangevraagd</span>` : ""}
     </div>
     <div class="seg" role="tablist">${tab("eligible", "Geschikt")}${tab("check", "Controle nodig")}${tab("selected", "Gekozen")}</div>
+    ${AB.tab === "follow" ? '<p class="small muted" style="margin:0">Hier was al een afspraak in ERAforce, of ERA tekende een opdracht op dit adres. Deze panden lopen via de gewone opvolging (Oxpecker) en staan niet meer in je aanbellijst.</p>' : ""}
     ${AB.tab === "check" ? '<p class="small muted" style="margin:0">Geen actieve aanbieding bevestigd, of een bron kon niet gecontroleerd worden. Een time-out of blokkade betekent niet dat het pand offline is.</p>' : ""}
     ${AB.tab === "selected" && groups.selected.some((c) => c.decision !== "eligible") ? `<div class="notice warn">${icon("alert")}<span>Een of meer gekozen panden zijn intussen niet meer bevestigd als te koop. Controleer je selectie.</span></div>` : ""}
     <div class="row spread"><span class="small muted">${list.length} ${list.length === 1 ? "pand" : "panden"}${AB.tab === "eligible" ? ` · ${d.below_threshold} korter dan ${pr.min_days + 1} dagen niet getoond` : ""}</span>
-      ${AB.tab !== "selected" && list.length ? `<button class="btn sm ghost" id="recheck-all">${icon("refresh", "sm")} Alles controleren</button>` : ""}</div>
+      ${AB.tab !== "selected" && AB.tab !== "follow" && list.length ? `<button class="btn sm ghost" id="recheck-all">${icon("refresh", "sm")} Alles controleren</button>` : ""}</div>
     ${list.length ? list.slice(0, AB.shown).map((c) => propertyCard(c, pr)).join("") : `<div class="panel" style="text-align:center"><p class="muted" style="margin:0">${
       AB.tab === "selected" ? "Nog geen panden gekozen. Tik op het vakje bij een pand." : AB.tab === "eligible" ? "Geen bevestigde panden boven je grens. Kijk bij ‘Controle nodig’ of verlaag het aantal dagen." : "Niets te controleren."}</p></div>`}
     ${list.length > AB.shown ? `<button class="btn outline block" id="more">Toon meer (${list.length - AB.shown} resterend)</button>` : ""}
+    ${groups.follow.length && AB.tab !== "follow" ? `<button class="btn ghost block" data-abtab="follow">${groups.follow.length} in opvolging bekijken (afspraak of opdracht in ERAforce)</button>` : ""}
     ${groups.gone.length ? `<button class="btn ghost block" data-abtab="gone">${groups.gone.length} niet meer te koop bekijken</button>` : ""}
   </div>
   ${nSel ? `<div style="height:84px"></div><div class="save-bar over-nav"><div><a class="btn primary xl block" href="#/aanbellen/route">${icon("nav")} Start prospectieronde · ${plural(nSel, "pand", "panden")}</a></div></div>` : ""}`;

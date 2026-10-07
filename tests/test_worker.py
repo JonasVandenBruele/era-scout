@@ -110,6 +110,18 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(w.lead_to_contacts(mp, {}, {}, {}), [])                    # Marketpulse-naam zonder nummer: niets
         self.assertIsNone(w.lead_to_contacts({**mp, "Phone": "02"}, {}, {}, {})[0]["name"])  # wel nummer, geen valse naam
 
+    def test_appointments(self):
+        import sqlite3
+        con = sqlite3.connect(":memory:")
+        con.execute('create table "Event" ("WhoId", "Type", "Subject", "StartDateTime", "ActivityDate", "_verwijderd")')
+        con.executemany('insert into "Event" values (?, ?, ?, ?, ?, 0)', [
+            ("00QA", "Afspraak prospect kennismaking", "Afspraak", "2026-03-01T09:00:00Z", None),
+            ("00QA", "Afspraak prospect schatting op locatie", "Afspraak", "2026-05-02T09:00:00Z", None),
+            ("00QB", "Afspraak prospect vervolg", "GEANNULEERD - Afspraak", "2026-06-01T09:00:00Z", None)])
+        a = w.appointments(con)
+        self.assertEqual(a["00QA"], ("2026-05-02", "Afspraak prospect schatting op locatie"))   # laatste telt
+        self.assertNotIn("00QB", a)                                                            # geannuleerd telt niet
+
     def test_agency_name(self):
         base = {"ERA_Bron_Bemiddelaar__c": "Marketpulse / Concurrent Makelaar", "FirstName": None,
                 "LastName": "Kerkstraat 12, 1800 Vilvoorde, Immo Nuvo"}

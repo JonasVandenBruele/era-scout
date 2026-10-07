@@ -257,6 +257,27 @@ class AanbellenTest(AanbellenBase):
         self.assertEqual(self.worker("select worker.finish_contacts(%s, %s)", self.team, started), 4)  # niet meer in de bron: weg
         self.assertEqual(self.cards()[a]["contacts"], [])
 
+    def test_follow_up(self):
+        a, b, c = self.prop("00Q000000000A2"), self.prop("00Q000000000B1"), self.prop("00Q000000000C1")
+        self.assertIsNone(self.cards()[a]["follow_up"])
+        self.sql("update public.source_records set last_appointment = current_date - 20, appointment_type = 'Afspraak prospect schatting' "
+                 "where external_id = '00Q000000000A2'")
+        self.assertEqual(self.cards()[a]["follow_up"]["kind"], "afspraak")             # afspraak op de prospect zelf
+        rows = [{"external_id": "00QF1", "address_type": "main", "kind": "Verkoper", "name": "X", "phone": "1",
+                 "street": "Teststraat", "number": "3", "box": "9", "postcode": "1800", "last_appointment": "2026-09-01"},
+                {"external_id": "00QF2", "address_type": "main", "kind": "Koper", "name": "Y", "phone": "1",
+                 "street": "Teststr", "number": "5", "postcode": "1800", "last_appointment": "2026-09-01"}]
+        self.worker("select worker.import_contacts(%s, %s)", self.team, Jsonb(rows))
+        self.assertEqual(self.cards()[b]["follow_up"]["date"], "2026-09-01")           # verkoper in zelfde gebouw
+        self.assertIsNone(self.cards()[c]["follow_up"])                                  # koper telt niet
+        self.worker("select worker.import_mandates(%s, %s)", self.team, Jsonb([{"external_id": "006F", "kind": "Verkoop", "date_basis": "ERA_Datum_Ondertekening_Mandaat__c",
+                    "signed_on": str(__import__("datetime").date.today()), "street": "Teststraat", "number": "5", "postcode": "1800"}]))
+        self.assertEqual(self.cards()[c]["follow_up"]["kind"], "opdracht")              # opdracht op dit adres
+        self.sql("update public.source_records set last_appointment = null, appointment_type = null")
+        self.sql("delete from public.crm_contacts")
+        self.sql("delete from public.mandate_awards"); self.sql("delete from public.point_transactions where kind = 'mandate'")
+        self.sql("delete from public.mandates")
+
     def test_access(self):
         with psycopg.connect(self.url) as con:
             con.execute("set local role authenticated")

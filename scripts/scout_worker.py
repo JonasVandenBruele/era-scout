@@ -221,6 +221,27 @@ def lead_to_contacts(lead, users, groups, rts):
     return out
 
 
+def appointments(con):
+    """Laatste niet-geannuleerde afspraak (Event) per prospect: WhoId → (datum, type). Taken tellen niet: die zijn
+    grotendeels automatisch ("Marketpulse Prospect Opvolgtaak")."""
+    out = {}
+    for who, typ, subj, start, day in con.execute(
+            'select "WhoId", "Type", "Subject", "StartDateTime", "ActivityDate" from "Event" '
+            'where "_verwijderd" = 0 and "WhoId" is not null'):
+        if (subj or "").strip().upper().startswith("GEANNULEERD"):
+            continue
+        d = iso_date(start) or iso_date(day)
+        if d and (who not in out or d > out[who][0]):
+            out[who] = (d, (typ or subj or "Afspraak")[:80])
+    return out
+
+
+def with_appointment(rec, appts):
+    a = appts.get(rec["external_id"])
+    rec["last_appointment"], rec["appointment_type"] = (a if a else (None, None))
+    return rec
+
+
 def read_contacts(path):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -228,8 +249,9 @@ def read_contacts(path):
     groups = {r["Id"]: r["Name"] for r in con.execute('select "Id", "Name" from "Group"')}
     rts = {r["Id"]: r["Name"] for r in con.execute('select "Id", "Name" from "RecordType"')}
     rows = [dict(r) for r in con.execute(CONTACT_SQL)]
+    appts = appointments(con)
     con.close()
-    return [c for r in rows for c in lead_to_contacts(r, users, groups, rts)]
+    return [with_appointment(c, appts) for r in rows for c in lead_to_contacts(r, users, groups, rts)]
 
 
 def read_mirror(path):
@@ -239,8 +261,9 @@ def read_mirror(path):
     groups = {r["Id"]: r["Name"] for r in con.execute('select "Id", "Name" from "Group"')}
     leads = [dict(r) for r in con.execute(
         '''select * from "Lead" where "_verwijderd" = 0 and "LeadSource" = 'Marketpulse' ''')]
+    appts = appointments(con)
     con.close()
-    return [lead_to_record(l, users, groups) for l in leads]
+    return [with_appointment(lead_to_record(l, users, groups), appts) for l in leads]
 
 
 # ============================================================== Supabase ==
