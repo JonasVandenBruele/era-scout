@@ -246,6 +246,7 @@ class AanbellenTest(AanbellenBase):
         self.assertEqual(self.worker("select worker.import_contacts(%s, %s)", self.team, Jsonb(rows)), 4)
         ca = self.cards()[a]["contacts"]
         self.assertEqual([(x["name"], x["match"]) for x in ca], [("Eigenaar Een", "adres")])
+        self.assertEqual(ca[0]["sf_id"], "00QX1")                                                   # voor de Salesforce-knop
         cb = {x["name"]: x for x in self.cards()[b]["contacts"]}
         self.assertEqual(cb["Bewoner Twee"]["match"], "gebouw")
         self.assertEqual(cb["Bewoner Twee"]["phone"], "02 123 45 67")                              # nummer wel tonen (keuze kantoor)

@@ -1715,20 +1715,60 @@ function portalName(url) {
 
 const MATCH_LABEL = { adres: "zelfde adres", gebouw: "zelfde gebouw", vermoedelijk: "vermoedelijk zelfde adres" };
 const telHref = (n) => `tel:${String(n).replace(/[^0-9+]/g, "")}`;
+// Salesforce (ERAforce): na het bellen meteen een "Uitgaande Oproep"-taak loggen op de prospect, zoals in ERAforce gebruikelijk
+// (onderwerp en type "Uitgaande Oproep", status "Gesloten", recordtype "ERAforce Prospectie taken").
+const SF = { base: "https://erabelgium.lightning.force.com", taskRecordType: "01224000000gEemAAE" };
+const sfRecordUrl = (id) => `${SF.base}/lightning/r/Lead/${encodeURIComponent(id)}/view`;
+const sfCallTaskUrl = (id) => {
+  const v = { Subject: "Uitgaande Oproep", Type: "Uitgaande Oproep", Status: "Gesloten", WhoId: id, ActivityDate: ymd(new Date()) };
+  const dv = Object.entries(v).map(([k, x]) => `${k}=${encodeURIComponent(x)}`).join(",");
+  return `${SF.base}/lightning/o/Task/new?recordTypeId=${SF.taskRecordType}&defaultFieldValues=${dv}`;
+};
+const PENDING_CALL = "scout-gebeld";
+
 function contactsBlock(c) {
   const list = c.contacts || [];
   if (!list.length) return "";
   return `<div class="contacts">
-    <div class="label" style="margin-bottom:6px">Al bekend in ERAforce (${list.length})</div>
-    ${list.map((p) => `<div class="contact">
-      <div class="grow"><b>${esc(p.name || "Naam onbekend")}</b>
+    <div class="label" style="margin-bottom:6px">${icon("phone", "sm")} Gekend in ERAforce (${list.length})</div>
+    ${list.map((p) => {
+      const nums = [p.mobile, p.phone].filter(Boolean).filter((n, i, a) => a.indexOf(n) === i);
+      return `<div class="contact">
+      <div><b>${esc(p.name || "Naam onbekend")}</b>
         <div class="tiny muted">${esc([p.kind, p.status, p.lead_source].filter(Boolean).join(" · "))}${p.owner ? ` · ${esc(p.owner)}` : ""}${p.created ? ` · ${fmtDate(p.created)}` : ""}</div>
-        <div class="tiny ${p.match === "vermoedelijk" ? "warn-t" : "faint"}">${MATCH_LABEL[p.match]}${p.match !== "adres" ? `: ${esc(p.address)}` : ""}${p.other_address ? " (ander adres van de prospect)" : ""}</div></div>
-      <div class="contact-tel">${p.do_not_call ? '<span class="pill red" title="In ERAforce staat ‘niet bellen’ aangevinkt">Niet bellen in ERAforce</span>' : ""}${
-        [p.mobile, p.phone].filter(Boolean).filter((n, i, a) => a.indexOf(n) === i).map((n) => `<a class="btn sm ghost" href="${telHref(n)}">${icon("phone", "sm")} ${esc(n)}</a>`).join("")}</div>
-    </div>`).join("")}
+        <div class="tiny ${p.match === "vermoedelijk" ? "warn-t" : "faint"}">${MATCH_LABEL[p.match]}${p.match !== "adres" ? `: ${esc(p.address)}` : ""}${p.other_address ? " (ander adres van de prospect)" : ""}</div>
+        ${p.do_not_call ? '<div style="margin-top:4px"><span class="pill red">Niet bellen in ERAforce</span></div>' : ""}</div>
+      ${nums.map((n) => `<a class="btn primary block call-btn" href="${telHref(n)}" data-call="${esc(p.sf_id || "")}" data-call-name="${esc(p.name || n)}">
+        ${icon("phone")} <span>Bel ${esc((p.name || "").split(" ")[0] || "")} <span class="num">${esc(n)}</span></span></a>`).join("")}
+      ${p.sf_id ? `<div class="row wrap" style="gap:6px">
+        <a class="btn sm ghost" href="${sfCallTaskUrl(p.sf_id)}" target="_blank" rel="noopener">${icon("check", "sm")} Log oproep in Salesforce</a>
+        <a class="btn sm ghost" href="${sfRecordUrl(p.sf_id)}" target="_blank" rel="noopener">Open in Salesforce</a></div>` : ""}
+    </div>`;
+    }).join("")}
   </div>`;
 }
+
+// Bellen vanuit Scout: onthouden wie je belde; als je terugkomt in de app, meteen voorstellen om de oproep te loggen.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest("[data-call]");
+  if (a && a.dataset.call) store.set(PENDING_CALL, { sf: a.dataset.call, name: a.dataset.callName, at: Date.now() });
+});
+function offerCallLog() {
+  const p = store.get(PENDING_CALL, null);
+  if (!p || document.visibilityState !== "visible") return;
+  if (Date.now() - p.at < 4000) return;                       // nog niet echt weg geweest (tel:-dialoog geannuleerd?)
+  store.del(PENDING_CALL);
+  if (Date.now() - p.at > 3 * 3600e3) return;
+  layer.innerHTML = `<div class="overlay" role="dialog" aria-modal="true" aria-label="Oproep loggen"><div class="sheet stack">
+    <div class="burst"><div class="tier">Gebeld</div><div class="what">${esc(p.name)}</div>
+      <div class="small muted">Log het gesprek in Salesforce, zodat het in de geschiedenis van de prospect staat.</div></div>
+    <a class="btn primary xl block" id="log-sf" href="${sfCallTaskUrl(p.sf)}" target="_blank" rel="noopener">${icon("check")} Log uitgaande oproep in Salesforce</a>
+    <button class="btn ghost block" id="log-skip">Niet nu</button></div></div>`;
+  on("#log-sf", "click", () => setTimeout(closeLayer, 300), layer);
+  on("#log-skip", "click", closeLayer, layer);
+}
+document.addEventListener("visibilitychange", offerCallLog);
+window.addEventListener("pageshow", offerCallLog);
 
 function agencyLine(c) {
   const lbl = (c.agency || "").toLowerCase();

@@ -434,7 +434,8 @@ details > summary.label::-webkit-details-marker { display: none; }
 
 /* Aanbellen: prospecten op hetzelfde adres */
 .contacts { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
-.contact { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; flex-wrap: wrap; }
+.contact { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.call-btn { justify-content: flex-start; gap: 10px; min-height: 52px; font-size: 15px; text-transform: none; letter-spacing: 0; }
+.call-btn .num { font-weight: 800; }
 .contact + .contact { border-top: 1px solid var(--line); }
-.contact-tel { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .warn-t { color: var(--gold); }
